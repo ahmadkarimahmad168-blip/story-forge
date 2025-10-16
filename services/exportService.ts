@@ -7,7 +7,7 @@ const formatSeoData = (seo: SEOData | null): string => {
     return `العنوان: ${seo.title}\n\nالوصف: ${seo.description}\n\nالكلمات المفتاحية: ${seo.tags.join(', ')}`;
 };
 
-// Helper to fetch blob URLs and handle potential errors
+// Helper to fetch blob URLs (including data URLs) and handle potential errors
 const fetchBlob = async (url: string): Promise<Blob | null> => {
     try {
         const response = await fetch(url);
@@ -35,8 +35,8 @@ export const exportStoryAsZip = async (storyData: StoryData): Promise<void> => {
         // Create all subfolders, even if empty
         const textFolder = episodeFolder.folder("text");
         const audioFolder = episodeFolder.folder("audio");
-        const videosFolder = episodeFolder.folder("videos");
-        const imagesFolder = episodeFolder.folder("images"); // Keep for structure consistency
+        const imagesFolder = episodeFolder.folder("images");
+        episodeFolder.folder("videos"); // Keep empty folder for structure consistency
 
         // 1. Add text files
         if (textFolder) {
@@ -52,16 +52,16 @@ export const exportStoryAsZip = async (storyData: StoryData): Promise<void> => {
             }
         }
 
-        // 3. Add video files
-        const episodeVideos = episode.videoUrls || [];
-        if (videosFolder && episodeVideos.length > 0) {
-            const videoPromises = episodeVideos.map(async (videoUrl, j) => {
-                const videoBlob = await fetchBlob(videoUrl);
-                if (videoBlob) {
-                    videosFolder.file(`scene_${String(j + 1).padStart(2, '0')}.mp4`, videoBlob);
+        // 3. Add image files
+        const episodeImages = episode.images || [];
+        if (imagesFolder && episodeImages.length > 0) {
+            const imagePromises = episodeImages.map(async (image, j) => {
+                const imageBlob = await fetchBlob(image.url);
+                if (imageBlob) {
+                    imagesFolder.file(`image_${String(j + 1).padStart(2, '0')}.png`, imageBlob);
                 }
             });
-            await Promise.all(videoPromises);
+            await Promise.all(imagePromises);
         }
     }
 

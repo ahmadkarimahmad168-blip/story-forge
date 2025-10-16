@@ -2,17 +2,13 @@ import React, { useState } from 'react';
 import type { Episode } from '../types';
 import { Icon } from './Icon';
 import { GeminiTTSPanel } from './GeminiTTSPanel';
-import { VideoGenerationPanel } from './VideoGenerationPanel';
+import { ImageGenerationPanel, CreativeFxParams } from './ImageGenerationPanel';
 
 interface EpisodeDisplayProps {
     episodes: Episode[];
     isLoading: boolean;
     isExporting: boolean;
-    onGenerateVideoScene: (
-        episodeIndex: number,
-        params: { model: 'veo-3.1-fast-generate-preview' | 'veo-3.1-generate-preview'; resolution: '720p' | '1080p'; aspectRatio: '16:9' | '9:16' }
-    ) => void;
-    onGenerateVideoPrompt: (episodeIndex: number) => Promise<void>;
+    onGenerateScenes: (episodeIndex: number, params: CreativeFxParams) => void;
     onSaveEpisode: (episodeIndex: number) => void;
     onSaveStory: () => void;
     onUpdateEpisode: (index: number, episode: Episode) => void;
@@ -63,7 +59,7 @@ const SEODisplay: React.FC<{ seo: Episode['seo'] }> = ({ seo }) => {
 
 const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory' | 'onExportProject' > & { episode: Episode; index: number }> = (props) => {
     const {
-        episode, index, isLoading, onGenerateVideoScene, onGenerateVideoPrompt,
+        episode, index, isLoading, onGenerateScenes,
         onSaveEpisode, onUpdateEpisode
     } = props;
     
@@ -77,10 +73,6 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
 
     const handleAudioGenerated = (audioUrl: string) => {
         onUpdateEpisode(index, { ...episode, audioUrl });
-    };
-
-    const handleUpdateVideoPrompt = (newPrompt: string) => {
-        onUpdateEpisode(index, { ...episode, videoPrompt: newPrompt });
     };
 
     return (
@@ -100,31 +92,27 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                     </div>
                 </div>
                 <div className="lg:col-span-1 space-y-4">
-                     <VideoGenerationPanel
-                        videoPrompt={episode.videoPrompt || ''}
-                        onUpdatePrompt={handleUpdateVideoPrompt}
-                        onGenerateVideo={(params) => onGenerateVideoScene(index, params)}
-                        onGenerateVideoPrompt={() => onGenerateVideoPrompt(index)}
-                        isGeneratingPrompt={isLoading && props.isLoading}
-                        isGeneratingVideo={isLoading && props.isLoading}
+                     <ImageGenerationPanel
+                        onGenerateScenes={(params) => onGenerateScenes(index, params)}
+                        isGenerating={isLoading}
                      />
                 </div>
             </div>
 
-            {episode.videoUrls && episode.videoUrls.length > 0 && (
+            {episode.images && episode.images.length > 0 && (
                 <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
-                     <h3 className="text-xl font-bold text-amber-300 mb-4">مشاهد الفيديو التي تم إنشاؤها</h3>
+                     <h3 className="text-xl font-bold text-amber-300 mb-4">الصور التي تم إنشاؤها</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {episode.videoUrls.map((url, videoIndex) => (
-                            <div key={videoIndex} className="bg-gray-900/50 p-2 rounded-lg">
-                                <video controls src={url} className="w-full rounded-md bg-black" />
+                        {episode.images.map((image, imageIndex) => (
+                            <div key={imageIndex} className="bg-gray-900/50 p-2 rounded-lg">
+                                <img src={image.url} className="w-full rounded-md bg-black aspect-video object-cover" />
                                 <a
-                                    href={url}
-                                    download={`Episode_${index + 1}_Scene_${videoIndex + 1}.mp4`}
+                                    href={image.url}
+                                    download={`Episode_${index + 1}_Image_${imageIndex + 1}.png`}
                                     className="mt-2 w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm"
                                 >
                                     <Icon name="download" className="w-5 h-5" />
-                                    <span>تحميل MP4</span>
+                                    <span>تحميل PNG</span>
                                 </a>
                             </div>
                         ))}

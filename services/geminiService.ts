@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
-import type { Episode, SEOData, StorySuggestion } from '../types';
+import type { Episode, SEOData, StorySuggestion, GeneratedImage } from '../types';
 
 let ai: GoogleGenAI | null = null;
 let geminiApiKey: string | null = null;
@@ -51,6 +51,24 @@ const ensureAiInitialized = () => {
     return ai;
 }
 
+const getGeminiErrorString = (error: any): string => {
+    let message = '';
+    // Check for the nested error structure from Gemini API
+    if (error?.error?.message && typeof error.error.message === 'string') {
+        message = error.error.message;
+    } else if (error?.message && typeof error.message === 'string') {
+        message = error.message;
+    } else {
+        // Fallback for other error formats
+        try {
+            message = JSON.stringify(error);
+        } catch {
+            message = String(error);
+        }
+    }
+    return message.toLowerCase();
+};
+
 /**
  * A utility function to wrap API calls with a retry mechanism, featuring exponential backoff.
  * This is crucial for handling rate limit errors (429) gracefully.
@@ -68,7 +86,7 @@ const withRetry = async <T>(
             return await apiCall();
         } catch (error: any) {
             attempt++;
-            const errorString = (error.message || error.toString()).toLowerCase();
+            const errorString = getGeminiErrorString(error);
             const isRateLimitError = errorString.includes('429') || errorString.includes('resource_exhausted');
             const isQuotaError = errorString.includes('quota exceeded');
 
@@ -358,32 +376,94 @@ export const generateSpeech = async (config: TTSConfig): Promise<string> => {
     return URL.createObjectURL(wavBlob);
 };
 
-// --- NEW Video Generation Functionality ---
+// --- NEW Image Generation Functionality ---
 
-export const generateVideoPromptForEpisode = async (episodeText: string): Promise<string> => {
+export const generateScenePrompts = async (episodeText: string): Promise<string[]> => {
     const localAi = ensureAiInitialized();
     const apiCall = () => localAi.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Based on the following Arabic episode text, create a single, rich, descriptive paragraph to be used as a video generation prompt for a model like VEO. The prompt must be in Arabic. It should capture the peak moment, mood, and visual essence of the episode in a cinematic way. Describe the scene, characters, lighting, and action vividly.
+        contents: `Analyze the following Arabic episode text. Identify 6 distinct, key visual moments or scenes that would be powerful as cinematic images. For each scene, write a detailed and vivid image generation prompt in English. The prompts should describe characters, setting, lighting, mood, and action. Return ONLY the prompts as a JSON object with a key "prompts" containing an array of 6 strings.
 
-        Episode Text:
+        Episode Text Excerpt:
         ---
-        ${episodeText.substring(0, 5000)}...
+        ${episodeText.substring(0, 8000)}...
         ---
         `,
         config: {
             temperature: 0.8,
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    prompts: {
+                        type: Type.ARRAY,
+                        description: "An array of exactly 6 detailed, cinematic image generation prompts in English.",
+                        items: {
+                            type: Type.STRING
+                        }
+                    }
+                },
+                required: ["prompts"]
+            },
         },
     });
 
     const response = await withRetry<GenerateContentResponse>(apiCall, {});
-    return response.text.trim();
+    try {
+        const parsed = JSON.parse(response.text);
+        if (Array.isArray(parsed.prompts) && parsed.prompts.length > 0) {
+            return parsed.prompts;
+        }
+        throw new Error("AI did not return the expected array of prompts.");
+    } catch (e) {
+        console.error("Failed to parse scene prompts:", response.text, e);
+        throw new Error("Failed to parse scene prompts from AI response.");
+    }
 };
+
+export interface ImageGenerationParams {
+    prompt: string;
+    style: string;
+    chips: string[];
+    negativePrompt: string;
+    numberOfImages?: number;
+    seed?: number;
+}
+
+export const generateImage = async (params: ImageGenerationParams): Promise<GeneratedImage[]> => {
+    const localAi = ensureAiInitialized();
+    const { prompt, style, chips, negativePrompt, numberOfImages = 1, seed } = params;
+
+    const fullPrompt = [
+        prompt,
+        ...chips,
+        style,
+        negativePrompt ? `avoiding: ${negativePrompt}` : ''
+    ].filter(Boolean).join(', ');
+
+    const response = await localAi.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: fullPrompt,
+        config: {
+            numberOfImages: numberOfImages,
+            outputMimeType: 'image/png',
+            aspectRatio: '16:9',
+            seed: seed,
+        },
+    });
+
+    return response.generatedImages.map(img => ({
+        url: `data:image/png;base64,${img.image.imageBytes}`,
+    }));
+};
+
+// FIX: Add missing video generation functionality
+// --- Video Generation Functionality ---
 
 export interface VideoGenerationParams {
     prompt: string;
     image?: {
-        imageBytes: string; // base64 encoded string without data URI prefix
+        imageBytes: string;
         mimeType: string;
     };
     model: 'veo-3.1-fast-generate-preview' | 'veo-3.1-generate-preview';
@@ -394,75 +474,55 @@ export interface VideoGenerationParams {
 
 export const generateVideo = async (params: VideoGenerationParams): Promise<string> => {
     const localAi = ensureAiInitialized();
-    const { prompt, image, model, resolution, aspectRatio, onProgress } = params;
+    const { prompt, image, model, onProgress } = params;
 
-    if (!prompt && !image) {
-        throw new Error("يجب توفير وصف أو صورة أولية لإنشاء الفيديو.");
-    }
-
-    onProgress('بدء مهمة إنشاء الفيديو...');
+    onProgress('بدء عملية إنشاء الفيديو...');
+    onProgress(`باستخدام نموذج: ${model}`);
 
     let operation = await localAi.models.generateVideos({
-        model: model,
-        prompt: prompt,
-        image: image,
+        model,
+        prompt,
+        image,
         config: {
             numberOfVideos: 1,
-            resolution: resolution,
-            aspectRatio: aspectRatio,
         }
     });
 
-    onProgress('إنشاء الفيديو قيد التنفيذ... قد تستغرق هذه العملية عدة دقائق.');
-    const pollInterval = 10000; // 10 seconds
-    const maxPollAttempts = 15; // Try for ~2.5 minutes before timing out
-    let pollAttempts = 0;
-
+    onProgress('تم إرسال طلب إنشاء الفيديو. جاري انتظار المعالجة...');
+    
+    // Poll for completion
     while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        
-        if (pollAttempts >= maxPollAttempts) {
-            throw new Error('فشل التحقق من حالة الفيديو بعد عدة محاولات. قد تكون المهمة قد فشلت في الخلفية.');
-        }
-
-        onProgress(`التحقق من حالة الإنشاء... (محاولة ${pollAttempts + 1}/${maxPollAttempts})`);
-        
+        onProgress('الفيديو قيد المعالجة، جاري التحقق من الحالة...');
+        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 seconds polling
         try {
-            operation = await localAi.operations.getVideosOperation({ operation: operation });
-        } catch (e: any) {
-            pollAttempts++;
-            const errorMessage = (e.message || '').toLowerCase();
-            
-            // If it's a 404 or similar non-recoverable error, it's not going to fix itself. Fail fast.
-            if (errorMessage.includes('not found') || errorMessage.includes('404')) {
-                 console.error("Polling failed with a 404 Not Found error, stopping.", e);
-                 throw new Error(`فشل العثور على مهمة إنشاء الفيديو (404). قد يكون اسم النموذج غير صحيح أو أن المهمة لم تبدأ بنجاح.`);
-            }
-
-            console.warn(`Polling attempt ${pollAttempts}/${maxPollAttempts} failed, will retry.`, e);
-            onProgress(`فشل التحقق من الحالة، سيتم إعادة المحاولة...`);
+            operation = await localAi.operations.getVideosOperation({ operation });
+        } catch (e) {
+            const errorMessage = (e instanceof Error) ? e.message : String(e);
+            onProgress(`خطأ أثناء التحقق من الحالة: ${errorMessage}`);
+            throw e;
         }
     }
 
-    if (operation.error) {
-        console.error("Video generation failed:", operation.error);
-        throw new Error(`فشل إنشاء الفيديو: ${operation.error.message}`);
-    }
+    onProgress('اكتملت معالجة الفيديو. جاري جلب الرابط...');
 
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+
     if (!downloadLink) {
-        throw new Error('انتهى إنشاء الفيديو، ولكن لم يتم توفير رابط للتنزيل.');
+        onProgress('فشل في الحصول على رابط تنزيل الفيديو.');
+        throw new Error('Failed to get video download link.');
     }
 
-    onProgress('تم إنشاء الفيديو! جارٍ تنزيل بيانات الفيديو...');
+    onProgress('تم الحصول على رابط التنزيل...');
+    
+    const fetchUrl = `${downloadLink}&key=${geminiApiKey}`;
+    const response = await fetch(fetchUrl);
 
-    // The response.body contains the MP4 bytes. You must append an API key when fetching from the download link.
-    const response = await fetch(`${downloadLink}&key=${geminiApiKey}`);
     if (!response.ok) {
-        throw new Error(`فشل تنزيل الفيديو (الحالة: ${response.status})`);
+        onProgress(`فشل في تنزيل الفيديو. الحالة: ${response.status}`);
+        throw new Error(`Failed to download video. Status: ${response.status}`);
     }
 
     const videoBlob = await response.blob();
-    onProgress('اكتمل التنزيل!');
+    onProgress('تم تنزيل الفيديو بنجاح.');
     return URL.createObjectURL(videoBlob);
 };

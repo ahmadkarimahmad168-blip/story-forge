@@ -4,23 +4,20 @@ export interface SEOData {
     tags: string[];
 }
 
+export interface GeneratedImage {
+    url: string;
+}
+
 export interface Episode {
     text: string;
     seo: SEOData | null;
     audioUrl?: string;
-    videoPrompt?: string; // New field for the AI-generated VEO prompt
-    videoUrls?: string[];
-}
-
-// FIX: Added missing GeneratedImage interface to resolve import errors.
-export interface GeneratedImage {
-    url: string;
+    images?: GeneratedImage[];
 }
 
 export interface StoryData {
     storyPrompt: string;
     episodes: Episode[];
-    // All image-related fields have been removed.
 }
 
 export interface ArchivedStory {
@@ -31,7 +28,7 @@ export interface ArchivedStory {
 }
 
 export interface StorySuggestion {
-    title: string;
+    title:string;
     synopsis: string;
     popularity_reasons: string[];
     youtube_keywords: string[];

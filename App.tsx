@@ -6,7 +6,7 @@ import { Loader } from './components/Loader';
 import { PreviousStoriesModal } from './components/PreviousStoriesModal';
 import { StoryFinder } from './components/StoryFinder';
 import { ApiKeyModal } from './components/ApiKeyModal';
-import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateVideoPromptForEpisode, generateVideo } from './services/geminiService';
+import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateScenePrompts, generateImage } from './services/geminiService';
 import { exportStoryAsZip } from './services/exportService';
 import type { Episode, ArchivedStory, StoryData } from './types';
 import { Footer } from './components/Footer';
@@ -14,6 +14,7 @@ import { AboutPage } from './components/pages/AboutPage';
 import { ContactPage } from './components/pages/ContactPage';
 import { PrivacyPolicyPage } from './components/pages/PrivacyPolicyPage';
 import { TermsAndConditionsPage } from './components/pages/TermsAndConditionsPage';
+import type { CreativeFxParams } from './components/ImageGenerationPanel';
 
 type Page = 'main' | 'about' | 'contact' | 'privacy' | 'terms';
 
@@ -106,10 +107,12 @@ const App: React.FC = () => {
     const handleApiError = (err: any, context: string) => {
         console.error(`Error during '${context}':`, err);
         const errorMessage = getErrorMessage(err);
-        let userFriendlyMessage = `حدث خطأ: ${errorMessage}`;
-
+        let userFriendlyMessage = `حدث خطأ أثناء '${context}': ${errorMessage}`;
+    
         if (errorMessage.includes('api key not valid')) {
             userFriendlyMessage = "مفتاح Gemini API غير صالح. يرجى التحقق منه والمحاولة مرة أخرى.";
+        } else if (errorMessage.includes('quota exceeded') || errorMessage.includes('resource_exhausted')) {
+            userFriendlyMessage = "لقد تجاوزت حصتك الحالية من استخدام Gemini API. يرجى التحقق من خطتك وتفاصيل الفوترة في حساب Google AI الخاص بك. قد تحتاج إلى الانتظار لليوم التالي أو الترقية.";
         }
         setError(userFriendlyMessage);
     };
@@ -146,7 +149,7 @@ const App: React.FC = () => {
             for (let i = 0; i < 5; i++) {
                 setLoadingMessage(`[${i + 1}/5] جارٍ كتابة نص الحلقة...`);
                 const episodeData = await generateEpisode(outline, i + 1, storyPrompt, setLoadingMessage);
-                newEpisodes.push({ ...episodeData, videoPrompt: '', videoUrls: [] });
+                newEpisodes.push({ ...episodeData, images: [] });
                 setEpisodes([...newEpisodes]);
 
                 if (i < 4) await new Promise(resolve => setTimeout(resolve, 1500));
@@ -159,65 +162,60 @@ const App: React.FC = () => {
         }
     }, [storyPrompt]);
 
-    const handleGenerateVideoScene = useCallback(async (
+    const handleGenerateScenes = useCallback(async (
         episodeIndex: number,
-        params: { model: 'veo-3.1-fast-generate-preview' | 'veo-3.1-generate-preview'; resolution: '720p' | '1080p'; aspectRatio: '16:9' | '9:16' }
+        fxParams: CreativeFxParams
     ) => {
         const episode = episodes[episodeIndex];
-        if (!episode?.videoPrompt) {
-            setError("لا يوجد وصف لإنشاء الفيديو.");
+        if (!episode?.text) {
+            setError("لا يوجد نص للحلقة لتحليله.");
             return;
         }
 
         setIsLoading(true);
         setError(null);
         
-        const onProgress = (message: string) => {
-            setLoadingMessage(message);
-        };
-
         try {
-            onProgress("جارٍ إرسال الطلب إلى VEO...");
-            const videoUrl = await generateVideo({
-                prompt: episode.videoPrompt,
-                model: params.model,
-                resolution: params.resolution,
-                aspectRatio: params.aspectRatio,
-                onProgress,
-            });
+            setLoadingMessage(`[1/2] جارٍ تحليل الحلقة ${episodeIndex + 1} لتحديد المشاهد الرئيسية...`);
+            const scenePrompts = await generateScenePrompts(episode.text);
+
+            if (!scenePrompts || scenePrompts.length === 0) {
+                throw new Error("لم يتمكن الذكاء الاصطناعي من تحديد مشاهد من النص.");
+            }
+            
+            setLoadingMessage(`[2/2] جارٍ إنشاء ${scenePrompts.length} صور سينمائية...`);
+            
+            const seedValue = fxParams.seed ? parseInt(fxParams.seed, 10) : undefined;
+            
+            const imagePromises = scenePrompts.map((prompt, index) => 
+                generateImage({
+                    prompt,
+                    style: fxParams.style,
+                    chips: fxParams.chips,
+                    negativePrompt: fxParams.negativePrompt,
+                    numberOfImages: 1,
+                    // If a seed is provided, increment it for each image to ensure variety
+                    seed: seedValue ? seedValue + index : undefined,
+                })
+            );
+            
+            const imageResultArrays = await Promise.all(imagePromises);
+            const newImages = imageResultArrays.flat();
 
             const updatedEpisode: Episode = {
                 ...episode,
-                videoUrls: [...(episode.videoUrls || []), videoUrl],
+                images: [...(episode.images || []), ...newImages],
             };
             handleUpdateEpisode(episodeIndex, updatedEpisode);
 
         } catch (err) {
-            handleApiError(err, 'إنشاء مشهد الفيديو');
+            handleApiError(err, 'إنشاء مشاهد الصور');
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
         }
     }, [episodes]);
 
-     const handleGenerateVideoPrompt = useCallback(async (episodeIndex: number) => {
-        const episode = episodes[episodeIndex];
-        if (!episode?.text) return;
-
-        setIsLoading(true);
-        setLoadingMessage(`جارٍ تحليل نص الحلقة ${episodeIndex + 1}...`);
-        setError(null);
-        try {
-            const prompt = await generateVideoPromptForEpisode(episode.text);
-            const updatedEpisode: Episode = { ...episode, videoPrompt: prompt };
-            handleUpdateEpisode(episodeIndex, updatedEpisode);
-        } catch (err) {
-            handleApiError(err, 'تحليل النص لوصف الفيديو');
-        } finally {
-            setIsLoading(false);
-            setLoadingMessage('');
-        }
-    }, [episodes]);
 
     const handleSaveStory = () => {
         if (!storyPrompt && episodes.length === 0) {
@@ -287,8 +285,7 @@ const App: React.FC = () => {
         // Ensure backward compatibility
         setEpisodes(data.episodes.map(e => ({
             ...e,
-            videoPrompt: e.videoPrompt || '',
-            videoUrls: e.videoUrls || []
+            images: e.images || []
         })));
         setIsArchiveOpen(false);
         setPage('main');
@@ -332,8 +329,7 @@ const App: React.FC = () => {
                                 episodes={episodes}
                                 isLoading={isLoading}
                                 isExporting={isExporting}
-                                onGenerateVideoScene={handleGenerateVideoScene}
-                                onGenerateVideoPrompt={handleGenerateVideoPrompt}
+                                onGenerateScenes={handleGenerateScenes}
                                 onSaveEpisode={handleSaveEpisode}
                                 onSaveStory={handleSaveStory}
                                 onUpdateEpisode={handleUpdateEpisode}
