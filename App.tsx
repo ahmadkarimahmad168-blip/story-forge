@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { StoryInput } from './components/StoryInput';
 import { EpisodeDisplay } from './components/EpisodeDisplay';
@@ -6,7 +6,9 @@ import { Loader } from './components/Loader';
 import { PreviousStoriesModal } from './components/PreviousStoriesModal';
 import { StoryFinder } from './components/StoryFinder';
 import { ApiKeyModal } from './components/ApiKeyModal';
+import { SelectFolderModal } from './components/SelectFolderModal';
 import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateScenePrompts, generateImage } from './services/geminiService';
+import * as fileSystemService from './services/fileSystemService';
 import { exportStoryAsZip } from './services/exportService';
 import type { Episode, ArchivedStory, StoryData } from './types';
 import { Footer } from './components/Footer';
@@ -36,6 +38,12 @@ const App: React.FC = () => {
     // --- API Key State ---
     const [apiKey, setApiKey] = useState<string | null>(null);
     const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
+
+    // --- File System State ---
+    const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
+    const [isRequestingDir, setIsRequestingDir] = useState(false);
+    const [dirError, setDirError] = useState(false);
+    const dirRequestResolver = useRef<((handle: FileSystemDirectoryHandle | null) => void) | null>(null);
 
     // --- Story State ---
     const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
@@ -68,40 +76,76 @@ const App: React.FC = () => {
         }
     }, []);
 
-    // Load stories from Local Storage on initial mount
+    // Try to load directory handle and stories in the background without prompting the user.
     useEffect(() => {
-        try {
-            const savedStories = localStorage.getItem('storyforge_stories');
-            if (savedStories) {
-                setArchivedStories(JSON.parse(savedStories));
+        if (!apiKey) return;
+
+        const tryLoadInBackground = async () => {
+            const handle = await fileSystemService.getDirectoryHandle(false); // false = don't prompt
+            if (handle) {
+                setDirHandle(handle);
+                try {
+                    // Temporarily show loader for background loading
+                    setLoadingMessage("جارٍ تحميل القصص السابقة في الخلفية...");
+                    setIsLoading(true);
+                    const stories = await fileSystemService.loadStories(handle);
+                    setArchivedStories(stories);
+                } catch (e) {
+                    console.error("Background story load failed, likely due to permissions. Stale handle will be cleared.", e);
+                    await fileSystemService.clearDirectoryHandle();
+                    setDirHandle(null);
+                } finally {
+                    setIsLoading(false);
+                    setLoadingMessage("");
+                }
             }
-        } catch (e) {
-            console.error("Failed to load stories from local storage:", e);
-            setError("فشل في تحميل القصص المحفوظة من المتصفح.");
-        }
-    }, []);
+        };
 
-    // Save stories to Local Storage whenever they change
-    useEffect(() => {
-        try {
-            // Sort stories by date before saving
-            const sortedStories = [...archivedStories].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            localStorage.setItem('storyforge_stories', JSON.stringify(sortedStories));
-        } catch (e) {
-            console.error("Failed to save stories to local storage:", e);
-            setError("فشل في حفظ القصة في المتصفح.");
+        if ('showDirectoryPicker' in window) {
+            tryLoadInBackground();
+        } else {
+            setError("متصفحك لا يدعم واجهة برمجة تطبيقات نظام الملفات. لا يمكن حفظ القصص. يرجى استخدام متصفح حديث مثل Chrome أو Edge.");
         }
-    }, [archivedStories]);
-
+    }, [apiKey]);
+    
     const handleSaveApiKey = async (key: string): Promise<void> => {
-        // `validateApiKey` will throw on failure, which is caught by the modal.
         await validateApiKey(key);
-        
-        // On success:
         localStorage.setItem('gemini_api_key', key);
         initializeGemini(key);
         setApiKey(key);
         setIsApiKeyModalOpen(false);
+    };
+
+    const promptForDirectory = (): Promise<FileSystemDirectoryHandle | null> => {
+        return new Promise((resolve) => {
+            dirRequestResolver.current = resolve;
+            setDirError(false);
+            setIsRequestingDir(true);
+        });
+    };
+
+    const handleSelectFolder = async () => {
+        const handle = await fileSystemService.getDirectoryHandle(true); // true prompts native picker
+        setIsRequestingDir(false);
+        if (handle) {
+            setDirHandle(handle);
+            setIsLoading(true);
+            setLoadingMessage("جارٍ فحص المجلد...");
+            try {
+                const stories = await fileSystemService.loadStories(handle);
+                setArchivedStories(stories);
+            } catch (e) {
+                console.error("Failed to load stories after selection:", e);
+                setError("فشل تحميل القصص من المجلد المختار.");
+            } finally {
+                setIsLoading(false);
+                setLoadingMessage("");
+            }
+        }
+        if (dirRequestResolver.current) {
+            dirRequestResolver.current(handle);
+            dirRequestResolver.current = null;
+        }
     };
 
     const handleApiError = (err: any, context: string) => {
@@ -139,7 +183,7 @@ const App: React.FC = () => {
         }
         setIsLoading(true);
         setError(null);
-        clearWorkspace(); // Resets episodes and other states
+        clearWorkspace();
 
         try {
             setLoadingMessage('جارٍ إنشاء الخطوط العريضة للقصة...');
@@ -194,7 +238,6 @@ const App: React.FC = () => {
                     chips: fxParams.chips,
                     negativePrompt: fxParams.negativePrompt,
                     numberOfImages: 1,
-                    // If a seed is provided, increment it for each image to ensure variety
                     seed: seedValue ? seedValue + index : undefined,
                 })
             );
@@ -216,11 +259,23 @@ const App: React.FC = () => {
         }
     }, [episodes]);
 
-
-    const handleSaveStory = () => {
+    const handleSaveStory = async () => {
         if (!storyPrompt && episodes.length === 0) {
             setError("لا توجد قصة لحفظها."); return;
         }
+
+        let handle = dirHandle;
+        if (!handle) {
+            handle = await promptForDirectory();
+        }
+
+        if (!handle) {
+            setError("يجب تحديد مجلد لإتمام عملية الحفظ.");
+            return;
+        }
+        
+        setIsLoading(true);
+        setLoadingMessage("جارٍ حفظ القصة في مجلدك...");
 
         const storyId = activeStoryId || new Date().getTime().toString();
         const storyData: StoryData = { storyPrompt, episodes };
@@ -230,20 +285,22 @@ const App: React.FC = () => {
             title: episodes[0]?.seo?.title || storyPrompt.substring(0, 50) || "قصة بدون عنوان",
             createdAt: new Date().toISOString(), data: storyData,
         };
-
-        setArchivedStories(prev => {
-            const existingIndex = prev.findIndex(story => story.id === storyId);
-            if (existingIndex > -1) {
-                const updatedStories = [...prev];
-                updatedStories[existingIndex] = newStory;
-                return updatedStories;
-            } else {
-                return [...prev, newStory];
-            }
-        });
         
-        setActiveStoryId(storyId);
-        alert("تم حفظ القصة بنجاح!");
+        try {
+            await fileSystemService.saveStory(handle, newStory);
+            setActiveStoryId(storyId);
+
+            const updatedStories = await fileSystemService.loadStories(handle);
+            setArchivedStories(updatedStories);
+
+            alert("تم حفظ القصة بنجاح في مجلدك!");
+        } catch (e) {
+            console.error("Failed to save story:", e);
+            setError("فشل حفظ القصة. تحقق من الأذونات والمساحة المتاحة.");
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage("");
+        }
     };
     
     const handleSaveEpisode = (episodeIndex: number) => {
@@ -278,11 +335,20 @@ const App: React.FC = () => {
         }
     };
 
+    const handleOpenArchive = async () => {
+        let handle = dirHandle;
+        if (!handle) {
+            handle = await promptForDirectory();
+        }
+        if (handle) {
+            setIsArchiveOpen(true);
+        }
+    };
+
     const handleLoadArchivedStory = (storyToLoad: ArchivedStory) => {
         const { data, id } = storyToLoad;
         setActiveStoryId(id);
         setStoryPrompt(data.storyPrompt); 
-        // Ensure backward compatibility
         setEpisodes(data.episodes.map(e => ({
             ...e,
             images: e.images || []
@@ -291,10 +357,20 @@ const App: React.FC = () => {
         setPage('main');
     };
 
-    const handleDeleteArchivedStory = (id: string) => {
-        if (window.confirm("هل أنت متأكد أنك تريد حذف هذه القصة؟ سيتم الحذف من هذا المتصفح فقط.")) {
-            setArchivedStories(prev => prev.filter(story => story.id !== id));
-            if (activeStoryId === id) clearWorkspace();
+    const handleDeleteArchivedStory = async (id: string) => {
+        if (!dirHandle) {
+            setError("لا يمكن العثور على مقبض المجلد لحذف القصة.");
+            return;
+        }
+        if (window.confirm("هل أنت متأكد أنك تريد حذف هذه القصة؟ سيتم حذف مجلدها من جهاز الكمبيوتر الخاص بك.")) {
+            try {
+                await fileSystemService.deleteStory(dirHandle, id);
+                setArchivedStories(prev => prev.filter(story => story.id !== id));
+                if (activeStoryId === id) clearWorkspace();
+            } catch (e) {
+                console.error("Failed to delete story folder:", e);
+                setError("فشل حذف مجلد القصة.");
+            }
         }
     };
 
@@ -310,7 +386,7 @@ const App: React.FC = () => {
     return (
         <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-6 lg:p-8 flex flex-col">
             <div className="max-w-7xl mx-auto space-y-8 w-full flex-grow">
-                <Header onNewStory={clearWorkspace} onOpenArchive={() => setIsArchiveOpen(true)} onNavigate={setPage} />
+                <Header onNewStory={clearWorkspace} onOpenArchive={handleOpenArchive} onNavigate={setPage} />
                 {page === 'main' ? (
                     <main>
                         <div className="space-y-6 bg-gray-800/30 p-4 sm:p-6 rounded-2xl shadow-2xl border border-gray-700 backdrop-blur-sm">
@@ -355,6 +431,7 @@ const App: React.FC = () => {
                 onLoad={handleLoadArchivedStory}
                 onDelete={handleDeleteArchivedStory}
             />
+            <SelectFolderModal isOpen={isRequestingDir} onSelectFolder={handleSelectFolder} isError={dirError} />
         </div>
     );
 };
