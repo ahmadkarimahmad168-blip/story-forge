@@ -3,12 +3,14 @@ import type { Episode } from '../types';
 import { Icon } from './Icon';
 import { GeminiTTSPanel } from './GeminiTTSPanel';
 import { ImageGenerationPanel, CreativeFxParams } from './ImageGenerationPanel';
+import { StoryboardPanel } from './StoryboardPanel';
 
 interface EpisodeDisplayProps {
     episodes: Episode[];
     isLoading: boolean;
     isExporting: boolean;
-    onGenerateScenes: (episodeIndex: number, params: CreativeFxParams) => void;
+    onGenerateImageScenes: (episodeIndex: number, params: CreativeFxParams) => void;
+    onGenerateStoryboard: (episodeIndex: number, promptCount: number) => void;
     onSaveEpisode: (episodeIndex: number) => void;
     onSaveStory: () => void;
     onUpdateEpisode: (index: number, episode: Episode) => void;
@@ -57,12 +59,28 @@ const SEODisplay: React.FC<{ seo: Episode['seo'] }> = ({ seo }) => {
     );
 };
 
+const TabButton: React.FC<{
+    iconName: string;
+    label: string;
+    isActive: boolean;
+    onClick: () => void;
+}> = ({ iconName, label, isActive, onClick }) => (
+    <button
+        onClick={onClick}
+        className={`flex items-center gap-3 px-4 py-3 font-bold text-lg transition-colors duration-300 rounded-t-lg ${isActive ? 'bg-gray-700/50 text-amber-400' : 'text-gray-400 hover:text-amber-300 hover:bg-gray-800/40'}`}
+    >
+        <Icon name={iconName} className="w-6 h-6" />
+        <span>{label}</span>
+    </button>
+);
+
 const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory' | 'onExportProject' > & { episode: Episode; index: number }> = (props) => {
     const {
-        episode, index, isLoading, onGenerateScenes,
+        episode, index, isLoading, onGenerateImageScenes, onGenerateStoryboard,
         onSaveEpisode, onUpdateEpisode
     } = props;
     
+    const [activeTab, setActiveTab] = useState<'images' | 'audio' | 'storyboard'>('images');
     const [copiedText, setCopiedText] = useState(false);
 
     const handleCopyText = () => {
@@ -75,9 +93,13 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
         onUpdateEpisode(index, { ...episode, audioUrl });
     };
 
+    const handleStoryboardPromptsUpdate = (newPrompts: string[]) => {
+        onUpdateEpisode(index, { ...episode, storyboardPrompts: newPrompts });
+    };
+
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                 <div className="lg:col-span-2 space-y-4">
                     <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
                         <div className="flex justify-between items-center mb-2">
@@ -91,11 +113,36 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                         <SEODisplay seo={episode.seo} />
                     </div>
                 </div>
-                <div className="lg:col-span-1 space-y-4">
-                     <ImageGenerationPanel
-                        onGenerateScenes={(params) => onGenerateScenes(index, params)}
-                        isGenerating={isLoading}
-                     />
+
+                <div className="lg:col-span-3">
+                    <div className="flex border-b border-gray-600/50">
+                        <TabButton iconName="image" label="الصور" isActive={activeTab === 'images'} onClick={() => setActiveTab('images')} />
+                        <TabButton iconName="voice" label="التعليق الصوتي" isActive={activeTab === 'audio'} onClick={() => setActiveTab('audio')} />
+                        <TabButton iconName="clapperboard" label="اللوحة القصصية" isActive={activeTab === 'storyboard'} onClick={() => setActiveTab('storyboard')} />
+                    </div>
+                    <div className="bg-gray-700/50 p-4 rounded-b-xl">
+                        {activeTab === 'images' && (
+                             <ImageGenerationPanel
+                                onGenerateScenes={(params) => onGenerateImageScenes(index, params)}
+                                isGenerating={isLoading}
+                             />
+                        )}
+                        {activeTab === 'audio' && (
+                             <GeminiTTSPanel 
+                                episodeText={episode.text} 
+                                initialAudioUrl={episode.audioUrl}
+                                onAudioGenerated={handleAudioGenerated} 
+                            />
+                        )}
+                        {activeTab === 'storyboard' && (
+                            <StoryboardPanel 
+                                episode={episode}
+                                onGenerate={(promptCount) => onGenerateStoryboard(index, promptCount)}
+                                onUpdatePrompts={handleStoryboardPromptsUpdate}
+                                isLoading={isLoading}
+                            />
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -119,12 +166,6 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                     </div>
                 </div>
             )}
-            
-            <GeminiTTSPanel 
-                episodeText={episode.text} 
-                initialAudioUrl={episode.audioUrl}
-                onAudioGenerated={handleAudioGenerated} 
-            />
              <div className="text-center pt-4">
                 <button onClick={() => onSaveEpisode(index)} className="inline-flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors">
                     <Icon name="document" className="w-5 h-5" />
@@ -169,6 +210,7 @@ export const EpisodeDisplay: React.FC<EpisodeDisplayProps> = (props) => {
                         {...props}
                         episode={episodes[activeTab]}
                         index={activeTab}
+                        onGenerateScenes={props.onGenerateImageScenes}
                     />
                 )}
             </div>

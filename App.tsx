@@ -7,7 +7,7 @@ import { PreviousStoriesModal } from './components/PreviousStoriesModal';
 import { StoryFinder } from './components/StoryFinder';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { SelectFolderModal } from './components/SelectFolderModal';
-import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateScenePrompts, generateImage } from './services/geminiService';
+import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage } from './services/geminiService';
 import * as fileSystemService from './services/fileSystemService';
 import { exportStoryAsZip } from './services/exportService';
 import type { Episode, ArchivedStory, StoryData } from './types';
@@ -193,7 +193,7 @@ const App: React.FC = () => {
             for (let i = 0; i < 5; i++) {
                 setLoadingMessage(`[${i + 1}/5] جارٍ كتابة نص الحلقة...`);
                 const episodeData = await generateEpisode(outline, i + 1, storyPrompt, setLoadingMessage);
-                newEpisodes.push({ ...episodeData, images: [] });
+                newEpisodes.push({ ...episodeData, images: [], storyboardPrompts: [] });
                 setEpisodes([...newEpisodes]);
 
                 if (i < 4) await new Promise(resolve => setTimeout(resolve, 1500));
@@ -206,7 +206,7 @@ const App: React.FC = () => {
         }
     }, [storyPrompt]);
 
-    const handleGenerateScenes = useCallback(async (
+    const handleGenerateImageScenes = useCallback(async (
         episodeIndex: number,
         fxParams: CreativeFxParams
     ) => {
@@ -221,7 +221,7 @@ const App: React.FC = () => {
         
         try {
             setLoadingMessage(`[1/2] جارٍ تحليل الحلقة ${episodeIndex + 1} لتحديد المشاهد الرئيسية...`);
-            const scenePrompts = await generateScenePrompts(episode.text);
+            const scenePrompts = await generateImageScenePrompts(episode.text);
 
             if (!scenePrompts || scenePrompts.length === 0) {
                 throw new Error("لم يتمكن الذكاء الاصطناعي من تحديد مشاهد من النص.");
@@ -253,6 +253,34 @@ const App: React.FC = () => {
 
         } catch (err) {
             handleApiError(err, 'إنشاء مشاهد الصور');
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage('');
+        }
+    }, [episodes]);
+
+    const handleGenerateStoryboard = useCallback(async (episodeIndex: number, promptCount: number) => {
+        const episode = episodes[episodeIndex];
+        if (!episode?.text) {
+            setError("لا يوجد نص حلقة لتحليل لوحة القصة.");
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            setLoadingMessage(`جارٍ تحليل النص لإنشاء ${promptCount} مشهدًا...`);
+            const prompts = await generateStoryboardPrompts(episode.text, promptCount);
+            
+            const updatedEpisode: Episode = {
+                ...episode,
+                storyboardPrompts: prompts,
+            };
+            handleUpdateEpisode(episodeIndex, updatedEpisode);
+
+        } catch (err) {
+            handleApiError(err, 'إنشاء لوحة قصصية');
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
@@ -351,7 +379,8 @@ const App: React.FC = () => {
         setStoryPrompt(data.storyPrompt); 
         setEpisodes(data.episodes.map(e => ({
             ...e,
-            images: e.images || []
+            images: e.images || [],
+            storyboardPrompts: e.storyboardPrompts || [],
         })));
         setIsArchiveOpen(false);
         setPage('main');
@@ -405,7 +434,8 @@ const App: React.FC = () => {
                                 episodes={episodes}
                                 isLoading={isLoading}
                                 isExporting={isExporting}
-                                onGenerateScenes={handleGenerateScenes}
+                                onGenerateImageScenes={handleGenerateImageScenes}
+                                onGenerateStoryboard={handleGenerateStoryboard}
                                 onSaveEpisode={handleSaveEpisode}
                                 onSaveStory={handleSaveStory}
                                 onUpdateEpisode={handleUpdateEpisode}

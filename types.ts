@@ -13,6 +13,7 @@ export interface Episode {
     seo: SEOData | null;
     audioUrl?: string;
     images?: GeneratedImage[];
+    storyboardPrompts?: string[];
 }
 
 export interface StoryData {

@@ -1,3 +1,4 @@
+// FIX: Removed invalid file header that was causing syntax errors.
 import React, { useState, useEffect } from 'react';
 import { Icon } from './Icon';
 import { generateSpeech, TTSConfig } from '../services/geminiService';
@@ -18,6 +19,7 @@ const VOICES = [
 
 export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, initialAudioUrl, onAudioGenerated }) => {
     const [text, setText] = useState(episodeText);
+    const [styleInstruction, setStyleInstruction] = useState('');
     const [mode, setMode] = useState<'single' | 'multi'>('single');
     const [voice1, setVoice1] = useState(VOICES[0].name);
     const [voice2, setVoice2] = useState(VOICES[1].name);
@@ -43,7 +45,7 @@ export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, ini
         setAudioUrl(null);
 
         try {
-            const config: TTSConfig = { text, mode, voice1, voice2 };
+            const config: TTSConfig = { text, mode, voice1, voice2, styleInstruction };
             const url = await generateSpeech(config);
             setAudioUrl(url);
             onAudioGenerated(url); // Notify parent component of the new URL
@@ -80,6 +82,21 @@ export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, ini
                             للمحادثات، استخدم الصيغة: <code className="bg-gray-800 p-1 rounded">المتحدث1: الحوار...</code>
                         </p>
                     )}
+                </div>
+
+                 <div>
+                    <label htmlFor="tts-style" className="block text-sm font-medium text-gray-300 mb-1">
+                        إرشادات الأسلوب (اختياري)
+                    </label>
+                    <input
+                        id="tts-style"
+                        type="text"
+                        className="w-full p-2 bg-gray-900/70 border border-gray-600 rounded-lg focus:ring-1 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                        placeholder="مثال: اقرأ بنبرة دافئة وحماسية"
+                        value={styleInstruction}
+                        onChange={(e) => setStyleInstruction(e.target.value)}
+                        disabled={isLoading}
+                    />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

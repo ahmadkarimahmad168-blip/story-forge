@@ -99,7 +99,13 @@ export const Icon: React.FC<IconProps> = ({ name, className }) => {
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
-        )
+        ),
+        clapperboard: (
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5-2.25 2.25m0 0L2.25 7.5M2.25 2.25v13.5m18-13.5v13.5m-18 0h18M5.625 7.5h12.75" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 15.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008v-.008Zm-2.25-2.25h.008v.008h-.008v-.008Zm-2.25 2.25h.008v.008h-.008V18Zm-2.25-2.25h.008v.008h-.008v-.008Zm-2.25 2.25h.008v.008h-.008V18Zm-2.25-2.25h.008v.008h-.008v-.008Zm-2.25 2.25h.008v.008h-.008V18Zm-2.25-2.25h.008v.008h-.008v-.008Zm-2.25 2.25h.008v.008h-.008V18Zm-2.25-2.25h.008v.008h-.008v-.008ZM4.5 18h.008v.008H4.5V18Z" />
+            </svg>
+        ),
     };
 
     const selectedIcon = icons[name] || <div />;

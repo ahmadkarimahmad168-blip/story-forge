@@ -1,3 +1,4 @@
+// FIX: Removed invalid file header that was causing syntax errors.
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
 import type { Episode, SEOData, StorySuggestion, GeneratedImage } from '../types';
 
@@ -319,20 +320,21 @@ export interface TTSConfig {
     mode: 'single' | 'multi';
     voice1: string;
     voice2?: string;
+    styleInstruction?: string;
 }
 
 export const generateSpeech = async (config: TTSConfig): Promise<string> => {
     const localAi = ensureAiInitialized();
-    const { text, mode, voice1, voice2 } = config;
+    const { text, mode, voice1, voice2, styleInstruction } = config;
 
     const speakerLines = text.match(/^.*?:/gm) || [];
     const speakers = [...new Set(speakerLines.map(line => line.slice(0, -1).trim()))];
     
     let speechConfig: any = {};
-    let prompt = text;
+    let promptText = text;
 
     if (mode === 'multi' && speakers.length >= 2 && voice2) {
-        prompt = `TTS the following conversation between ${speakers[0]} and ${speakers[1]}:\n${text}`;
+        promptText = `TTS the following conversation between ${speakers[0]} and ${speakers[1]}:\n${text}`;
         speechConfig = {
             multiSpeakerVoiceConfig: {
                 speakerVoiceConfigs: [
@@ -348,10 +350,14 @@ export const generateSpeech = async (config: TTSConfig): Promise<string> => {
             },
         };
     }
+
+    const finalPrompt = (styleInstruction && styleInstruction.trim())
+        ? `${styleInstruction.trim()}: ${promptText}`
+        : promptText;
     
     const response = await localAi.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts: [{ text: finalPrompt }] }],
         config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: speechConfig
@@ -376,9 +382,9 @@ export const generateSpeech = async (config: TTSConfig): Promise<string> => {
     return URL.createObjectURL(wavBlob);
 };
 
-// --- NEW Image Generation Functionality ---
+// --- Image & Video Scene Generation Functionality ---
 
-export const generateScenePrompts = async (episodeText: string): Promise<string[]> => {
+export const generateImageScenePrompts = async (episodeText: string): Promise<string[]> => {
     const localAi = ensureAiInitialized();
     const apiCall = () => localAi.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -420,6 +426,50 @@ export const generateScenePrompts = async (episodeText: string): Promise<string[
         throw new Error("Failed to parse scene prompts from AI response.");
     }
 };
+
+export const generateStoryboardPrompts = async (episodeText: string, promptCount: number): Promise<string[]> => {
+    const localAi = ensureAiInitialized();
+    const apiCall = () => localAi.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Analyze the following Arabic story text. Your task is to break it down into a sequence of distinct visual scenes, each suitable for an 8-second video clip. You must generate exactly ${promptCount} scenes. For each scene, write a detailed, cinematic video generation prompt in English. The prompts should be vivid and describe the setting, characters, action, camera movement, and mood. Return the result as a JSON object with a key "prompts" containing an array of exactly ${promptCount} strings.
+
+        Story Text:
+        ---
+        ${episodeText.substring(0, 12000)}...
+        ---
+        `,
+        config: {
+            temperature: 0.9,
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    prompts: {
+                        type: Type.ARRAY,
+                        description: `An array of exactly ${promptCount} detailed, cinematic video generation prompts in English.`,
+                        items: {
+                            type: Type.STRING
+                        }
+                    }
+                },
+                required: ["prompts"]
+            },
+        },
+    });
+
+    const response = await withRetry<GenerateContentResponse>(apiCall, {});
+    try {
+        const parsed = JSON.parse(response.text);
+        if (Array.isArray(parsed.prompts) && parsed.prompts.length > 0) {
+            return parsed.prompts;
+        }
+        throw new Error("AI did not return the expected array of prompts.");
+    } catch (e) {
+        console.error("Failed to parse storyboard prompts:", response.text, e);
+        throw new Error("Failed to parse storyboard prompts from AI response.");
+    }
+};
+
 
 export interface ImageGenerationParams {
     prompt: string;
@@ -474,7 +524,7 @@ export interface VideoGenerationParams {
 
 export const generateVideo = async (params: VideoGenerationParams): Promise<string> => {
     const localAi = ensureAiInitialized();
-    const { prompt, image, model, onProgress } = params;
+    const { prompt, image, model, onProgress, resolution, aspectRatio } = params;
 
     onProgress('بدء عملية إنشاء الفيديو...');
     onProgress(`باستخدام نموذج: ${model}`);
@@ -485,6 +535,8 @@ export const generateVideo = async (params: VideoGenerationParams): Promise<stri
         image,
         config: {
             numberOfVideos: 1,
+            resolution: resolution,
+            aspectRatio: aspectRatio,
         }
     });
 

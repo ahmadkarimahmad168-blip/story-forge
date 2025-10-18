@@ -7,6 +7,16 @@ const formatSeoData = (seo: SEOData | null): string => {
     return `العنوان: ${seo.title}\n\nالوصف: ${seo.description}\n\nالكلمات المفتاحية: ${seo.tags.join(', ')}`;
 };
 
+// Helper to format storyboard prompts into a readable string
+const formatStoryboardPrompts = (prompts: string[] | undefined): string => {
+    if (!prompts || prompts.length === 0) {
+        return "لا توجد أوصاف مشاهد متاحة لهذه الحلقة.";
+    }
+    return prompts.map((prompt, index) => {
+        return `المشهد ${index + 1}:\n${prompt}\n\n---`;
+    }).join('\n\n').trim();
+};
+
 // Helper to fetch blob URLs (including data URLs) and handle potential errors
 const fetchBlob = async (url: string): Promise<Blob | null> => {
     try {
@@ -42,6 +52,8 @@ export const exportStoryAsZip = async (storyData: StoryData): Promise<void> => {
         if (textFolder) {
             textFolder.file("episode_script.txt", episode.text || "");
             textFolder.file("seo_and_metadata.txt", formatSeoData(episode.seo));
+            // Add the new storyboard prompts file
+            textFolder.file("storyboard_prompts.txt", formatStoryboardPrompts(episode.storyboardPrompts));
         }
         
         // 2. Add audio file
