@@ -5,8 +5,8 @@ import { generateSpeech, TTSConfig } from '../services/geminiService';
 
 interface GeminiTTSPanelProps {
     episodeText: string;
-    initialAudioUrl?: string;
-    onAudioGenerated: (url: string) => void;
+    initialAudioUrls?: string[];
+    onAudioGenerated: (urls: string[]) => void;
 }
 
 const VOICES = [
@@ -17,7 +17,7 @@ const VOICES = [
     { name: "Fenrir", label: "Fenrir (متحمس، يشبه صوت الذكر)" },
 ];
 
-export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, initialAudioUrl, onAudioGenerated }) => {
+export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, initialAudioUrls, onAudioGenerated }) => {
     const [text, setText] = useState(episodeText);
     const [styleInstruction, setStyleInstruction] = useState('');
     const [mode, setMode] = useState<'single' | 'multi'>('single');
@@ -25,14 +25,15 @@ export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, ini
     const [voice2, setVoice2] = useState(VOICES[1].name);
 
     const [isLoading, setIsLoading] = useState(false);
-    const [audioUrl, setAudioUrl] = useState<string | null>(initialAudioUrl || null);
+    const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
+    const [audioUrls, setAudioUrls] = useState<string[] | null>(initialAudioUrls || null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         setText(episodeText);
-        setAudioUrl(initialAudioUrl || null);
+        setAudioUrls(initialAudioUrls || null);
         setError(null);
-    }, [episodeText, initialAudioUrl]);
+    }, [episodeText, initialAudioUrls]);
 
     const handleGenerate = async () => {
         if (!text.trim()) {
@@ -42,18 +43,65 @@ export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, ini
 
         setIsLoading(true);
         setError(null);
-        setAudioUrl(null);
+        setAudioUrls([]); // Initialize as empty array for progressive updates
+        setLoadingMessage(null);
 
         try {
-            const config: TTSConfig = { text, mode, voice1, voice2, styleInstruction };
-            const url = await generateSpeech(config);
-            setAudioUrl(url);
-            onAudioGenerated(url); // Notify parent component of the new URL
+            const MAX_CHUNK_LENGTH = 4800; // Safe character limit for TTS API
+            const chunks: string[] = [];
+            let textToSplit = text.trim();
+
+            while (textToSplit.length > 0) {
+                if (textToSplit.length <= MAX_CHUNK_LENGTH) {
+                    chunks.push(textToSplit);
+                    break;
+                }
+
+                const searchSlice = textToSplit.substring(0, MAX_CHUNK_LENGTH);
+                let splitIndex = -1;
+
+                // Find the last occurrence of a good separator to split after it
+                const separators = ['\n', '. ', '، ', '? ', '! '];
+                for (const sep of separators) {
+                    const index = searchSlice.lastIndexOf(sep);
+                    if (index > splitIndex) {
+                        splitIndex = index + sep.length;
+                    }
+                }
+
+                // If no sentence/line ending, find the last space
+                if (splitIndex === -1) {
+                    splitIndex = searchSlice.lastIndexOf(' ');
+                }
+                
+                // If no space, hard cut
+                if (splitIndex === -1 || splitIndex === 0) {
+                    splitIndex = MAX_CHUNK_LENGTH;
+                }
+
+                chunks.push(textToSplit.substring(0, splitIndex).trim());
+                textToSplit = textToSplit.substring(splitIndex).trim();
+            }
+
+            const finalChunks = chunks.filter(chunk => chunk.length > 0);
+            const generatedUrls: string[] = [];
+
+            for (let i = 0; i < finalChunks.length; i++) {
+                const chunk = finalChunks[i];
+                setLoadingMessage(`جارٍ إنشاء الجزء ${i + 1} من ${finalChunks.length}...`);
+                const config: TTSConfig = { text: chunk, mode, voice1, voice2, styleInstruction };
+                const url = await generateSpeech(config);
+                generatedUrls.push(url);
+                setAudioUrls([...generatedUrls]); // Update UI progressively as each part finishes
+            }
+            
+            onAudioGenerated(generatedUrls);
         } catch (err: any) {
             console.error("TTS Generation Error:", err);
             setError(err.message || "فشل إنشاء التعليق الصوتي. يرجى المحاولة مرة أخرى.");
         } finally {
             setIsLoading(false);
+            setLoadingMessage(null);
         }
     };
     
@@ -137,7 +185,7 @@ export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, ini
                     className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg hover:shadow-amber-500/30 transform hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
                 >
                     <Icon name={isLoading ? 'regenerate' : 'generate'} className={`w-6 h-6 ${isLoading ? 'animate-spin' : ''}`} />
-                    {isLoading ? 'جارٍ الإنشاء...' : 'إنشاء/إعادة إنشاء التعليق الصوتي'}
+                    {isLoading ? (loadingMessage || 'جارٍ الإنشاء...') : 'إنشاء/إعادة إنشاء التعليق الصوتي'}
                 </button>
 
                 {error && (
@@ -146,16 +194,21 @@ export const GeminiTTSPanel: React.FC<GeminiTTSPanelProps> = ({ episodeText, ini
                     </div>
                 )}
 
-                {audioUrl && !isLoading && (
-                     <div className="flex flex-col sm:flex-row items-center gap-4 p-2 bg-gray-900/50 rounded-lg mt-4">
-                        <audio controls src={audioUrl} className="w-full sm:flex-1"></audio>
-                        <a
-                            href={audioUrl} download={`StoryForge_Voiceover.wav`}
-                            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-md transition-colors"
-                        >
-                            <Icon name="download" className="w-5 h-5" />
-                            <span>تحميل WAV</span>
-                        </a>
+                {audioUrls && audioUrls.length > 0 && !isLoading && (
+                    <div className="space-y-4 mt-4">
+                        {audioUrls.map((url, index) => (
+                            <div key={index} className="flex flex-col sm:flex-row items-center gap-4 p-2 bg-gray-900/50 rounded-lg">
+                                <p className="font-bold text-gray-300 shrink-0">الجزء {index + 1}</p>
+                                <audio controls src={url} className="w-full sm:flex-1"></audio>
+                                <a
+                                    href={url} download={`StoryForge_Voiceover_Part_${index + 1}.wav`}
+                                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-md transition-colors"
+                                >
+                                    <Icon name="download" className="w-5 h-5" />
+                                    <span>تحميل الجزء {index + 1}</span>
+                                </a>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

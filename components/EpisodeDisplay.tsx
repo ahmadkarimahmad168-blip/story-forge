@@ -89,8 +89,8 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
         setTimeout(() => setCopiedText(false), 2000);
     };
 
-    const handleAudioGenerated = (audioUrl: string) => {
-        onUpdateEpisode(index, { ...episode, audioUrl });
+    const handleAudioGenerated = (audioUrls: string[]) => {
+        onUpdateEpisode(index, { ...episode, audioUrls });
     };
 
     const handleStoryboardPromptsUpdate = (newPrompts: string[]) => {
@@ -130,7 +130,7 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                         {activeTab === 'audio' && (
                              <GeminiTTSPanel 
                                 episodeText={episode.text} 
-                                initialAudioUrl={episode.audioUrl}
+                                initialAudioUrls={episode.audioUrls}
                                 onAudioGenerated={handleAudioGenerated} 
                             />
                         )}
@@ -210,7 +210,6 @@ export const EpisodeDisplay: React.FC<EpisodeDisplayProps> = (props) => {
                         {...props}
                         episode={episodes[activeTab]}
                         index={activeTab}
-                        onGenerateScenes={props.onGenerateImageScenes}
                     />
                 )}
             </div>

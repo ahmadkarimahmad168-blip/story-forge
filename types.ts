@@ -11,7 +11,7 @@ export interface GeneratedImage {
 export interface Episode {
     text: string;
     seo: SEOData | null;
-    audioUrl?: string;
+    audioUrls?: string[];
     images?: GeneratedImage[];
     storyboardPrompts?: string[];
 }

@@ -56,12 +56,15 @@ export const exportStoryAsZip = async (storyData: StoryData): Promise<void> => {
             textFolder.file("storyboard_prompts.txt", formatStoryboardPrompts(episode.storyboardPrompts));
         }
         
-        // 2. Add audio file
-        if (audioFolder && episode.audioUrl) {
-            const audioBlob = await fetchBlob(episode.audioUrl);
-            if (audioBlob) {
-                audioFolder.file("voiceover.wav", audioBlob);
-            }
+        // 2. Add audio files
+        if (audioFolder && episode.audioUrls && episode.audioUrls.length > 0) {
+            const audioPromises = episode.audioUrls.map(async (audioUrl, k) => {
+                const audioBlob = await fetchBlob(audioUrl);
+                if (audioBlob) {
+                    audioFolder.file(`voiceover_part_${k + 1}.wav`, audioBlob);
+                }
+            });
+            await Promise.all(audioPromises);
         }
 
         // 3. Add image files

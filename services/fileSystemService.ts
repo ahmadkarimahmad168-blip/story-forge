@@ -87,13 +87,16 @@ export const saveStory = async (dirHandle: FileSystemDirectoryHandle, storyToSav
         const episodeDirHandle = await storyDirHandle.getDirectoryHandle(`episode_${i + 1}`, { create: true });
 
         // Save audio
-        if (episode.audioUrl) {
+        if (episode.audioUrls && episode.audioUrls.length > 0) {
             try {
-                const audioBlob = await fetchBlob(episode.audioUrl);
-                const audioFileHandle = await episodeDirHandle.getFileHandle('voiceover.wav', { create: true });
-                writable = await audioFileHandle.createWritable();
-                await writable.write(audioBlob);
-                await writable.close();
+                for(let k = 0; k < episode.audioUrls.length; k++) {
+                    const audioUrl = episode.audioUrls[k];
+                    const audioBlob = await fetchBlob(audioUrl);
+                    const audioFileHandle = await episodeDirHandle.getFileHandle(`voiceover_part_${k + 1}.wav`, { create: true });
+                    writable = await audioFileHandle.createWritable();
+                    await writable.write(audioBlob);
+                    await writable.close();
+                }
             } catch (e) {
                 console.error(`Failed to save audio for episode ${i+1}`, e);
             }
@@ -135,11 +138,25 @@ const loadStoryFromDirectory = async (storyDirHandle: FileSystemDirectoryHandle)
 
                  // Load audio
                 try {
-                    const audioFileHandle = await episodeDirHandle.getFileHandle('voiceover.wav');
-                    const audioBlob = await audioFileHandle.getFile();
-                    episode.audioUrl = URL.createObjectURL(audioBlob);
+                    const audioUrls: string[] = [];
+                    const audioHandles = [];
+                    // Collect all audio file handles
+                    for await (const entry of episodeDirHandle.values()) {
+                        if (entry.kind === 'file' && entry.name.startsWith('voiceover') && entry.name.endsWith('.wav')) {
+                            audioHandles.push(entry);
+                        }
+                    }
+                     // Sort by name to maintain order (e.g., voiceover_part_1.wav)
+                    audioHandles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+                    
+                    for (const audioHandle of audioHandles) {
+                         const audioBlob = await audioHandle.getFile();
+                         audioUrls.push(URL.createObjectURL(audioBlob));
+                    }
+                    episode.audioUrls = audioUrls.length > 0 ? audioUrls : undefined;
+
                 } catch {
-                    episode.audioUrl = undefined;
+                    episode.audioUrls = undefined;
                 }
 
                 // Load images

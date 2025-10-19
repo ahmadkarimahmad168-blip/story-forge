@@ -7,7 +7,7 @@ import { PreviousStoriesModal } from './components/PreviousStoriesModal';
 import { StoryFinder } from './components/StoryFinder';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { SelectFolderModal } from './components/SelectFolderModal';
-import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage } from './services/geminiService';
+import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage, registerApiCallListener } from './services/geminiService';
 import * as fileSystemService from './services/fileSystemService';
 import { exportStoryAsZip } from './services/exportService';
 import type { Episode, ArchivedStory, StoryData } from './types';
@@ -59,6 +59,33 @@ const App: React.FC = () => {
     // --- Archive / Saved Stories ---
     const [archivedStories, setArchivedStories] = useState<ArchivedStory[]>([]);
     const [isArchiveOpen, setIsArchiveOpen] = useState<boolean>(false);
+    
+    // --- API Usage State ---
+    const [apiRequests, setApiRequests] = useState<number[]>([]);
+    const MAX_RPM = 60;
+
+    // Register API call listener and set up a cleanup interval for old requests
+    useEffect(() => {
+        // Function to add a timestamp when an API call is made
+        const handleApiCall = () => {
+            setApiRequests(prev => [...prev, Date.now()]);
+        };
+
+        // Register the listener with the geminiService
+        registerApiCallListener(handleApiCall);
+
+        // Set up an interval to clear out requests older than 60 seconds
+        const cleanupInterval = setInterval(() => {
+            const sixtySecondsAgo = Date.now() - 60000;
+            setApiRequests(prev => prev.filter(ts => ts > sixtySecondsAgo));
+        }, 1000); // Check every second
+
+        // Cleanup function
+        return () => {
+            clearInterval(cleanupInterval);
+            registerApiCallListener(null); // Unregister the listener
+        };
+    }, []); // Empty dependency array means this runs once on mount and cleans up on unmount
 
     // Check for API Key on initial mount
     useEffect(() => {
@@ -452,7 +479,7 @@ const App: React.FC = () => {
                     </main>
                 )}
             </div>
-            <Footer onNavigate={setPage} />
+            <Footer onNavigate={setPage} currentRpm={apiRequests.length} maxRpm={MAX_RPM} />
             {(isLoading || isExporting) && <Loader message={loadingMessage} />}
             <PreviousStoriesModal 
                 isOpen={isArchiveOpen}

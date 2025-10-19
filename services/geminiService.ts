@@ -5,6 +5,27 @@ import type { Episode, SEOData, StorySuggestion, GeneratedImage } from '../types
 let ai: GoogleGenAI | null = null;
 let geminiApiKey: string | null = null;
 
+// --- API Call Listener ---
+let apiCallListener: (() => void) | null = null;
+
+/**
+ * Registers a listener to be called on every API request.
+ * Used for tracking usage like RPM.
+ */
+export const registerApiCallListener = (listener: (() => void) | null) => {
+    apiCallListener = listener;
+};
+
+/**
+ * Notifies the registered listener that an API call is about to be made.
+ */
+const notifyApiCall = () => {
+    if (apiCallListener) {
+        apiCallListener();
+    }
+};
+
+
 export const initializeGemini = (apiKey: string) => {
     if (!apiKey) {
         throw new Error("API key is required to initialize Gemini service.");
@@ -84,6 +105,7 @@ const withRetry = async <T>(
     let attempt = 0;
     while (attempt < maxRetries) {
         try {
+            notifyApiCall(); // Notify right before the attempt
             return await apiCall();
         } catch (error: any) {
             attempt++;
