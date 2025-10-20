@@ -10,13 +10,12 @@ import { SelectFolderModal } from './components/SelectFolderModal';
 import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage } from './services/geminiService';
 import * as fileSystemService from './services/fileSystemService';
 import { exportStoryAsZip } from './services/exportService';
-import type { Episode, ArchivedStory, StoryData } from './types';
+import type { Episode, ArchivedStory, StoryData, GeneratedImage, CreativeFxParams } from './types';
 import { Footer } from './components/Footer';
 import { AboutPage } from './components/pages/AboutPage';
 import { ContactPage } from './components/pages/ContactPage';
 import { PrivacyPolicyPage } from './components/pages/PrivacyPolicyPage';
 import { TermsAndConditionsPage } from './components/pages/TermsAndConditionsPage';
-import type { CreativeFxParams } from './components/ImageGenerationPanel';
 
 type Page = 'main' | 'about' | 'contact' | 'privacy' | 'terms';
 
@@ -223,7 +222,6 @@ const App: React.FC = () => {
     const handleGenerateImageScenes = useCallback(async (
         episodeIndex: number,
         episodeText: string,
-        fxParams: CreativeFxParams
     ) => {
         if (!episodeText) {
             setError("لا يوجد نص للحلقة لتحليله.");
@@ -232,49 +230,63 @@ const App: React.FC = () => {
 
         setIsLoading(true);
         setError(null);
+        setLoadingMessage(`جارٍ تحليل الحلقة ${episodeIndex + 1} لتحديد المشاهد الرئيسية...`);
         
         try {
-            setLoadingMessage(`[1/${6 + 1}] جارٍ تحليل الحلقة ${episodeIndex + 1} لتحديد المشاهد الرئيسية...`);
             const scenePrompts = await generateImageScenePrompts(episodeText);
 
             if (!scenePrompts || scenePrompts.length === 0) {
                 throw new Error("لم يتمكن الذكاء الاصطناعي من تحديد مشاهد من النص.");
             }
             
-            const seedValue = fxParams.seed ? parseInt(fxParams.seed, 10) : undefined;
-            
-            for (let i = 0; i < scenePrompts.length; i++) {
-                const prompt = scenePrompts[i];
-                setLoadingMessage(`[${i + 2}/${scenePrompts.length + 1}] جارٍ إنشاء الصورة ${i + 1} من ${scenePrompts.length}...`);
-                
-                const imageResultArray = await generateImage({
-                    prompt,
-                    style: fxParams.style,
-                    chips: fxParams.chips,
-                    negativePrompt: fxParams.negativePrompt,
-                    numberOfImages: 1,
-                    seed: seedValue ? seedValue + i : undefined,
-                    model: fxParams.model,
-                });
-                
-                if (imageResultArray && imageResultArray.length > 0) {
-                    setEpisodes(prevEpisodes => {
-                        const newEpisodes = [...prevEpisodes];
-                        const targetEpisode = { ...newEpisodes[episodeIndex] };
-                        targetEpisode.images = [...(targetEpisode.images || []), ...imageResultArray];
-                        newEpisodes[episodeIndex] = targetEpisode;
-                        return newEpisodes;
-                    });
-                }
-            }
+            const defaultCreativeParams: CreativeFxParams = {
+                style: 'cinematic', chips: [], negativePrompt: '', seed: ''
+            };
+            const newCreativeParams = Array(scenePrompts.length).fill(null).map(() => ({ ...defaultCreativeParams }));
+            const newImages = Array(scenePrompts.length).fill(null);
+
+            setEpisodes(prevEpisodes => {
+                const newEpisodes = [...prevEpisodes];
+                const targetEpisode = { ...newEpisodes[episodeIndex] };
+                targetEpisode.imageScenePrompts = scenePrompts;
+                targetEpisode.imageSceneCreativeParams = newCreativeParams;
+                targetEpisode.images = newImages;
+                newEpisodes[episodeIndex] = targetEpisode;
+                return newEpisodes;
+            });
 
         } catch (err) {
-            handleApiError(err, 'إنشاء مشاهد الصور');
+            handleApiError(err, 'تحليل مشاهد الصور');
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
         }
     }, []);
+
+    const handleAddImageToEpisode = (episodeIndex: number, file: File) => {
+        if (!file.type.startsWith('image/')) {
+            setError("يرجى تحديد ملف صورة صالح.");
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const imageUrl = event.target?.result as string;
+            if (imageUrl) {
+                setEpisodes(prevEpisodes => {
+                    const newEpisodes = [...prevEpisodes];
+                    const targetEpisode = { ...newEpisodes[episodeIndex] };
+                    const newImage: GeneratedImage = { url: imageUrl };
+                    targetEpisode.images = [...(targetEpisode.images || []), newImage];
+                    newEpisodes[episodeIndex] = targetEpisode;
+                    return newEpisodes;
+                });
+            }
+        };
+        reader.onerror = () => {
+             setError("فشل في قراءة ملف الصورة.");
+        }
+        reader.readAsDataURL(file);
+    };
 
     const handleGenerateStoryboard = useCallback(async (episodeIndex: number, promptCount: number) => {
         const episode = episodes[episodeIndex];
@@ -303,6 +315,94 @@ const App: React.FC = () => {
             setLoadingMessage('');
         }
     }, [episodes]);
+
+    const handleUpdateCreativeParams = (episodeIndex: number, sceneIndex: number, params: CreativeFxParams) => {
+        setEpisodes(prev => {
+            const newEpisodes = [...prev];
+            const episode = { ...newEpisodes[episodeIndex] };
+            const creativeParams = [...(episode.imageSceneCreativeParams || [])];
+            creativeParams[sceneIndex] = params;
+            episode.imageSceneCreativeParams = creativeParams;
+            newEpisodes[episodeIndex] = episode;
+            return newEpisodes;
+        });
+    };
+
+    const handleUpdateImageScenePrompt = (episodeIndex: number, sceneIndex: number, newPrompt: string) => {
+        setEpisodes(prev => {
+            const newEpisodes = [...prev];
+            const episode = { ...newEpisodes[episodeIndex] };
+            const prompts = [...(episode.imageScenePrompts || [])];
+            prompts[sceneIndex] = newPrompt;
+            episode.imageScenePrompts = prompts;
+            newEpisodes[episodeIndex] = episode;
+            return newEpisodes;
+        });
+    };
+
+    const handleGenerateSingleImage = useCallback(async (episodeIndex: number, sceneIndex: number) => {
+        const episode = episodes[episodeIndex];
+        const basePrompt = episode?.imageScenePrompts?.[sceneIndex];
+        const params = episode?.imageSceneCreativeParams?.[sceneIndex];
+    
+        if (!basePrompt || !params) {
+            const err = new Error("لا يمكن العثور على وصف المشهد أو الإعدادات.");
+            handleApiError(err, `تهيئة صورة ${sceneIndex + 1}`);
+            throw err;
+        }
+    
+        const superPrompt = `${basePrompt}, ${params.style}, ${params.chips.join(', ')}${params.negativePrompt ? `, --no ${params.negativePrompt}` : ''}${params.seed ? `, --seed ${params.seed}` : ''}`;
+        
+        try {
+            const imageUrl = await generateImage({ prompt: superPrompt });
+    
+            setEpisodes(prev => {
+                const newEpisodes = [...prev];
+                const targetEpisode = { ...newEpisodes[episodeIndex] };
+                const newImages = [...(targetEpisode.images || [])];
+                newImages[sceneIndex] = { url: imageUrl };
+                targetEpisode.images = newImages;
+                newEpisodes[episodeIndex] = targetEpisode;
+                return newEpisodes;
+            });
+    
+        } catch(err) {
+            handleApiError(err, `إنشاء الصورة ${sceneIndex + 1}`);
+            throw err; // Re-throw to be caught by the sequential handler
+        }
+    }, [episodes]);
+
+    const handleGenerateAllImages = useCallback(async (episodeIndex: number) => {
+        const episode = episodes[episodeIndex];
+        const prompts = episode?.imageScenePrompts;
+        if (!prompts || prompts.length === 0) {
+            setError("يرجى تحليل النص لإنشاء مشاهد أولاً.");
+            return;
+        }
+    
+        setIsLoading(true);
+        setError(null);
+    
+        for (let i = 0; i < prompts.length; i++) {
+            try {
+                setLoadingMessage(`[${i + 1}/${prompts.length}] جارٍ إنشاء الصورة...`);
+                await handleGenerateSingleImage(episodeIndex, i);
+                
+                if (i < prompts.length - 1) {
+                    setLoadingMessage(`[${i + 1}/${prompts.length}] تم إنشاء الصورة. انتظار قصير قبل المتابعة...`);
+                    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+                }
+            } catch (err) {
+                // Error is handled inside handleGenerateSingleImage, which sets the error state.
+                // We break the loop on the first failure.
+                break;
+            }
+        }
+    
+        setIsLoading(false);
+        setLoadingMessage('');
+    }, [episodes, handleGenerateSingleImage]);
+
 
     const handleSaveStory = async () => {
         if (!storyPrompt && episodes.length === 0) {
@@ -462,6 +562,11 @@ const App: React.FC = () => {
                                 onSaveStory={handleSaveStory}
                                 onUpdateEpisode={handleUpdateEpisode}
                                 onExportProject={handleExportProject}
+                                onAddImage={handleAddImageToEpisode}
+                                onGenerateSingleImage={handleGenerateSingleImage}
+                                onGenerateAllImages={handleGenerateAllImages}
+                                onUpdateCreativeParams={handleUpdateCreativeParams}
+                                onUpdateImageScenePrompt={handleUpdateImageScenePrompt}
                             />
                         )}
                     </main>

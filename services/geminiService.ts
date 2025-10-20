@@ -1,6 +1,6 @@
 // FIX: Removed invalid file header that was causing syntax errors.
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
-import type { Episode, SEOData, StorySuggestion, GeneratedImage } from '../types';
+import type { Episode, SEOData, StorySuggestion } from '../types';
 
 let ai: GoogleGenAI | null = null;
 let geminiApiKey: string | null = null;
@@ -383,6 +383,36 @@ export const generateSpeech = async (config: TTSConfig): Promise<string> => {
 };
 
 // --- Image & Video Scene Generation Functionality ---
+export interface ImageGenerationParams {
+    prompt: string;
+}
+
+export const generateImage = async (params: ImageGenerationParams): Promise<string> => {
+    const localAi = ensureAiInitialized();
+    const { prompt } = params;
+
+    const apiCall = () => localAi.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+            parts: [{ text: prompt }],
+        },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+    });
+
+    const response = await withRetry<GenerateContentResponse>(apiCall, {});
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+            const base64ImageBytes: string = part.inlineData.data;
+            return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+        }
+    }
+    
+    throw new Error("No image data found in the AI response.");
+};
+
 
 export const generateImageScenePrompts = async (episodeText: string): Promise<string[]> => {
     const localAi = ensureAiInitialized();
@@ -469,79 +499,6 @@ export const generateStoryboardPrompts = async (episodeText: string, promptCount
         throw new Error("Failed to parse storyboard prompts from AI response.");
     }
 };
-
-
-export interface ImageGenerationParams {
-    prompt: string;
-    style: string;
-    chips: string[];
-    negativePrompt: string;
-    numberOfImages?: number;
-    seed?: number;
-    model?: 'gemini' | 'imagen';
-}
-
-export const generateImage = (params: ImageGenerationParams): Promise<GeneratedImage[]> => {
-    const apiCall = async (): Promise<GeneratedImage[]> => {
-        const localAi = ensureAiInitialized();
-        const { prompt, style, chips, negativePrompt, numberOfImages = 1, seed, model = 'gemini' } = params;
-
-        const fullPrompt = [
-            prompt,
-            ...chips,
-            style,
-            negativePrompt ? `avoiding: ${negativePrompt}` : ''
-        ].filter(Boolean).join(', ');
-
-        if (model === 'imagen') {
-            const response = await localAi.models.generateImages({
-                model: 'imagen-4.0-generate-001',
-                prompt: fullPrompt,
-                config: {
-                    numberOfImages: numberOfImages,
-                    outputMimeType: 'image/png',
-                    aspectRatio: '16:9',
-                    seed: seed,
-                },
-            });
-            return response.generatedImages.map(img => ({
-                url: `data:image/png;base64,${img.image.imageBytes}`,
-            }));
-        } else { // 'gemini'
-            const response = await localAi.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: {
-                    parts: [
-                        { text: fullPrompt },
-                    ],
-                },
-                config: {
-                    responseModalities: [Modality.IMAGE],
-                },
-            });
-
-            const images: GeneratedImage[] = [];
-            if (response.candidates && response.candidates[0]?.content?.parts) {
-                for (const part of response.candidates[0].content.parts) {
-                    if (part.inlineData?.data) {
-                        const base64ImageBytes: string = part.inlineData.data;
-                        const mimeType = part.inlineData.mimeType || 'image/png';
-                        images.push({ url: `data:${mimeType};base64,${base64ImageBytes}` });
-                    }
-                }
-            }
-
-            if (images.length === 0) {
-                throw new Error("AI did not return any images using the Gemini Flash model.");
-            }
-            
-            return images;
-        }
-    };
-    
-    return withRetry(apiCall, {});
-};
-
 
 // FIX: Add missing video generation functionality
 // --- Video Generation Functionality ---

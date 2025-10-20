@@ -1,20 +1,25 @@
 import React, { useState } from 'react';
-import type { Episode } from '../types';
+import type { Episode, CreativeFxParams } from '../types';
 import { Icon } from './Icon';
 import { GeminiTTSPanel } from './GeminiTTSPanel';
-import { ImageGenerationPanel, CreativeFxParams } from './ImageGenerationPanel';
+import { ImageGenerationPanel } from './ImageGenerationPanel';
 import { StoryboardPanel } from './StoryboardPanel';
 
 interface EpisodeDisplayProps {
     episodes: Episode[];
     isLoading: boolean;
     isExporting: boolean;
-    onGenerateImageScenes: (episodeIndex: number, episodeText: string, params: CreativeFxParams) => void;
+    onGenerateImageScenes: (episodeIndex: number, episodeText: string) => void;
     onGenerateStoryboard: (episodeIndex: number, promptCount: number) => void;
     onSaveEpisode: (episodeIndex: number) => void;
     onSaveStory: () => void;
     onUpdateEpisode: (index: number, episode: Episode) => void;
     onExportProject: () => void;
+    onAddImage: (episodeIndex: number, file: File) => void;
+    onGenerateSingleImage: (episodeIndex: number, sceneIndex: number) => void;
+    onGenerateAllImages: (episodeIndex: number) => void;
+    onUpdateCreativeParams: (episodeIndex: number, sceneIndex: number, params: CreativeFxParams) => void;
+    onUpdateImageScenePrompt: (episodeIndex: number, sceneIndex: number, newPrompt: string) => void;
 }
 
 const SEODisplay: React.FC<{ seo: Episode['seo'] }> = ({ seo }) => {
@@ -74,10 +79,11 @@ const TabButton: React.FC<{
     </button>
 );
 
-const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory' | 'onExportProject' > & { episode: Episode; index: number }> = (props) => {
+const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory' | 'onExportProject' | 'onAddImage' > & { episode: Episode; index: number; onAddImage: (file: File) => void; }> = (props) => {
     const {
         episode, index, isLoading, onGenerateImageScenes, onGenerateStoryboard,
-        onSaveEpisode, onUpdateEpisode
+        onSaveEpisode, onUpdateEpisode, onAddImage, onGenerateSingleImage,
+        onGenerateAllImages, onUpdateCreativeParams, onUpdateImageScenePrompt
     } = props;
     
     const [activeTab, setActiveTab] = useState<'images' | 'audio' | 'storyboard'>('images');
@@ -95,6 +101,13 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
 
     const handleStoryboardPromptsUpdate = (newPrompts: string[]) => {
         onUpdateEpisode(index, { ...episode, storyboardPrompts: newPrompts });
+    };
+    
+    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            onAddImage(file);
+        }
     };
 
     return (
@@ -123,8 +136,13 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                     <div className="bg-gray-700/50 p-4 rounded-b-xl">
                         {activeTab === 'images' && (
                              <ImageGenerationPanel
-                                onGenerateScenes={(params) => onGenerateImageScenes(index, episode.text, params)}
+                                onGenerateScenes={() => onGenerateImageScenes(index, episode.text)}
                                 isGenerating={isLoading}
+                                episode={episode}
+                                onGenerateSingleImage={(sceneIndex) => onGenerateSingleImage(index, sceneIndex)}
+                                onGenerateAllImages={() => onGenerateAllImages(index)}
+                                onUpdateCreativeParams={(sceneIndex, params) => onUpdateCreativeParams(index, sceneIndex, params)}
+                                onUpdateImageScenePrompt={(sceneIndex, newPrompt) => onUpdateImageScenePrompt(index, sceneIndex, newPrompt)}
                              />
                         )}
                         {activeTab === 'audio' && (
@@ -146,26 +164,47 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                 </div>
             </div>
 
-            {episode.images && episode.images.length > 0 && (
-                <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
-                     <h3 className="text-xl font-bold text-amber-300 mb-4">الصور التي تم إنشاؤها</h3>
+            <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mt-6">
+                 <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-amber-300">معرض الصور</h3>
+                    <label className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors cursor-pointer text-sm">
+                        <Icon name="upload" className="w-5 h-5" />
+                        <span>إضافة صورة من جهازك</span>
+                        <input type='file' className="hidden" accept="image/png, image/jpeg, image/webp" onChange={handleFileSelect} />
+                    </label>
+                </div>
+                {(episode.images && episode.images.some(img => img !== null)) ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {episode.images.map((image, imageIndex) => (
                             <div key={imageIndex} className="bg-gray-900/50 p-2 rounded-lg">
-                                <img src={image.url} className="w-full rounded-md bg-black aspect-video object-cover" />
-                                <a
-                                    href={image.url}
-                                    download={`Episode_${index + 1}_Image_${imageIndex + 1}.png`}
-                                    className="mt-2 w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm"
-                                >
-                                    <Icon name="download" className="w-5 h-5" />
-                                    <span>تحميل PNG</span>
-                                </a>
+                                {image ? (
+                                    <>
+                                        <img src={image.url} className="w-full rounded-md bg-black aspect-video object-cover" alt={`Generated scene ${imageIndex + 1}`} />
+                                        <a
+                                            href={image.url}
+                                            download={`Episode_${index + 1}_Image_${imageIndex + 1}.png`}
+                                            className="mt-2 w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm"
+                                        >
+                                            <Icon name="download" className="w-5 h-5" />
+                                            <span>تحميل PNG</span>
+                                        </a>
+                                    </>
+                                ) : (
+                                    <div className="w-full rounded-md bg-black aspect-video flex items-center justify-center text-gray-500">
+                                        <Icon name="image" className="w-10 h-10" />
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div className="text-center py-8 text-gray-500">
+                        <Icon name="image" className="w-16 h-16 mx-auto" />
+                        <p className="mt-2">لم يتم إنشاء أي صور بعد.</p>
+                        <p className="text-sm">اذهب إلى لوحة التحكم الإبداعي لإنشاء صورك.</p>
+                    </div>
+                )}
+            </div>
              <div className="text-center pt-4">
                 <button onClick={() => onSaveEpisode(index)} className="inline-flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors">
                     <Icon name="document" className="w-5 h-5" />
@@ -210,6 +249,7 @@ export const EpisodeDisplay: React.FC<EpisodeDisplayProps> = (props) => {
                         {...props}
                         episode={episodes[activeTab]}
                         index={activeTab}
+                        onAddImage={(file) => props.onAddImage(activeTab, file)}
                     />
                 )}
             </div>

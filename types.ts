@@ -8,12 +8,21 @@ export interface GeneratedImage {
     url: string;
 }
 
+export interface CreativeFxParams {
+    style: string;
+    chips: string[];
+    negativePrompt: string;
+    seed: string;
+}
+
 export interface Episode {
     text: string;
     seo: SEOData | null;
     audioUrls?: string[];
-    images?: GeneratedImage[];
+    images?: (GeneratedImage | null)[]; // Allow for null placeholders
     storyboardPrompts?: string[];
+    imageScenePrompts?: string[];
+    imageSceneCreativeParams?: CreativeFxParams[];
 }
 
 export interface StoryData {
