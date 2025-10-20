@@ -5,9 +5,10 @@ interface HeaderProps {
     onNewStory: () => void;
     onOpenArchive: () => void;
     onNavigate: (page: 'main') => void;
+    onOpenApiKeyModal: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onNewStory, onOpenArchive, onNavigate }) => {
+export const Header: React.FC<HeaderProps> = ({ onNewStory, onOpenArchive, onNavigate, onOpenApiKeyModal }) => {
     return (
         <header className="text-center relative py-4">
             <div 
@@ -42,6 +43,16 @@ export const Header: React.FC<HeaderProps> = ({ onNewStory, onOpenArchive, onNav
                     aria-label="View my stories"
                 >
                     <Icon name="folder" className="w-7 h-7" />
+                </button>
+            </div>
+            <div className="absolute top-0 left-0 flex items-center">
+                <button
+                    onClick={onOpenApiKeyModal}
+                    title="إعدادات مفتاح API"
+                    className="p-2 text-gray-400 hover:text-amber-400 transition-colors duration-300"
+                    aria-label="API Key Settings"
+                >
+                    <Icon name="key" className="w-7 h-7" />
                 </button>
             </div>
         </header>

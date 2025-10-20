@@ -446,14 +446,19 @@ const App: React.FC = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    if (!apiKey) {
-        return <ApiKeyModal isOpen={isApiKeyModalOpen} onSave={handleSaveApiKey} />;
+    if (!apiKey && !isApiKeyModalOpen) {
+        return <ApiKeyModal isOpen={true} onSave={handleSaveApiKey} />;
     }
 
     return (
         <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-6 lg:p-8 flex flex-col">
             <div className="max-w-7xl mx-auto space-y-8 w-full flex-grow">
-                <Header onNewStory={clearWorkspace} onOpenArchive={handleOpenArchive} onNavigate={setPage} />
+                <Header 
+                    onNewStory={clearWorkspace} 
+                    onOpenArchive={handleOpenArchive} 
+                    onNavigate={setPage}
+                    onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+                />
                 {page === 'main' ? (
                     <main>
                         <div className="space-y-6 bg-gray-800/30 p-4 sm:p-6 rounded-2xl shadow-2xl border border-gray-700 backdrop-blur-sm">
@@ -499,6 +504,7 @@ const App: React.FC = () => {
                 onLoad={handleLoadArchivedStory}
                 onDelete={handleDeleteArchivedStory}
             />
+            <ApiKeyModal isOpen={isApiKeyModalOpen} onSave={handleSaveApiKey} />
             <SelectFolderModal isOpen={isRequestingDir} onSelectFolder={handleSelectFolder} isError={dirError} />
         </div>
     );
