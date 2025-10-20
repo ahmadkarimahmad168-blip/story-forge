@@ -54,7 +54,7 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isExporting, setIsExporting] = useState<boolean>(false);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<React.ReactNode | null>(null);
 
     // --- Archive / Saved Stories ---
     const [archivedStories, setArchivedStories] = useState<ArchivedStory[]>([]);
@@ -178,12 +178,23 @@ const App: React.FC = () => {
     const handleApiError = (err: any, context: string) => {
         console.error(`Error during '${context}':`, err);
         const errorMessage = getErrorMessage(err);
-        let userFriendlyMessage = `حدث خطأ أثناء '${context}': ${errorMessage}`;
+        let userFriendlyMessage: React.ReactNode = `حدث خطأ أثناء '${context}': ${errorMessage}`;
     
         if (errorMessage.includes('api key not valid')) {
             userFriendlyMessage = "مفتاح Gemini API غير صالح. يرجى التحقق منه والمحاولة مرة أخرى.";
         } else if (errorMessage.includes('quota exceeded') || errorMessage.includes('resource_exhausted')) {
             userFriendlyMessage = "لقد تجاوزت حصتك الحالية من استخدام Gemini API. يرجى التحقق من خطتك وتفاصيل الفوترة في حساب Google AI الخاص بك. قد تحتاج إلى الانتظار لليوم التالي أو الترقية.";
+        } else if (errorMessage.includes('billed users')) {
+            userFriendlyMessage = (
+                <>
+                    ميزة إنشاء الصور باستخدام Imagen متاحة فقط للمستخدمين الذين لديهم حساب فوترة نشط.
+                    يرجى التأكد من أن مشروع Google Cloud الخاص بك مرتبط بحساب فوترة صالح.
+                    {' '}
+                    <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-white">
+                        تعرف على المزيد حول إعداد الفوترة.
+                    </a>
+                </>
+            );
         }
         setError(userFriendlyMessage);
     };
