@@ -187,8 +187,11 @@ const App: React.FC = () => {
         } else if (errorMessage.includes('billed users')) {
             userFriendlyMessage = (
                 <>
-                    ميزة إنشاء الصور باستخدام Imagen متاحة فقط للمستخدمين الذين لديهم حساب فوترة نشط.
-                    يرجى التأكد من أن مشروع Google Cloud الخاص بك مرتبط بحساب فوترة صالح.
+                    ميزة إنشاء الصور عالية الجودة (Imagen) متاحة فقط للمستخدمين الذين لديهم حساب فوترة نشط.
+                    <br />
+                    <strong>يمكنك استخدام نموذج الصور "القياسي (Gemini Flash)" الذي لا يتطلب فوترة.</strong>
+                    {' '}
+                    أو يمكنك التأكد من أن مشروع Google Cloud الخاص بك مرتبط بحساب فوترة صالح.
                     {' '}
                     <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="font-bold underline hover:text-white">
                         تعرف على المزيد حول إعداد الفوترة.
@@ -277,6 +280,7 @@ const App: React.FC = () => {
                     negativePrompt: fxParams.negativePrompt,
                     numberOfImages: 1,
                     seed: seedValue ? seedValue + index : undefined,
+                    model: fxParams.model,
                 })
             );
             

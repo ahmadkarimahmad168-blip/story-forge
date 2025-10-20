@@ -500,11 +500,12 @@ export interface ImageGenerationParams {
     negativePrompt: string;
     numberOfImages?: number;
     seed?: number;
+    model?: 'gemini' | 'imagen';
 }
 
 export const generateImage = async (params: ImageGenerationParams): Promise<GeneratedImage[]> => {
     const localAi = ensureAiInitialized();
-    const { prompt, style, chips, negativePrompt, numberOfImages = 1, seed } = params;
+    const { prompt, style, chips, negativePrompt, numberOfImages = 1, seed, model = 'gemini' } = params;
 
     const fullPrompt = [
         prompt,
@@ -513,20 +514,50 @@ export const generateImage = async (params: ImageGenerationParams): Promise<Gene
         negativePrompt ? `avoiding: ${negativePrompt}` : ''
     ].filter(Boolean).join(', ');
 
-    const response = await localAi.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: fullPrompt,
-        config: {
-            numberOfImages: numberOfImages,
-            outputMimeType: 'image/png',
-            aspectRatio: '16:9',
-            seed: seed,
-        },
-    });
+    if (model === 'imagen') {
+        const response = await localAi.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: fullPrompt,
+            config: {
+                numberOfImages: numberOfImages,
+                outputMimeType: 'image/png',
+                aspectRatio: '16:9',
+                seed: seed,
+            },
+        });
+        return response.generatedImages.map(img => ({
+            url: `data:image/png;base64,${img.image.imageBytes}`,
+        }));
+    } else {
+        const response = await localAi.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [
+                    { text: fullPrompt },
+                ],
+            },
+            config: {
+                responseModalities: [Modality.IMAGE],
+            },
+        });
 
-    return response.generatedImages.map(img => ({
-        url: `data:image/png;base64,${img.image.imageBytes}`,
-    }));
+        const images: GeneratedImage[] = [];
+        if (response.candidates && response.candidates[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData?.data) {
+                    const base64ImageBytes: string = part.inlineData.data;
+                    const mimeType = part.inlineData.mimeType || 'image/png';
+                    images.push({ url: `data:${mimeType};base64,${base64ImageBytes}` });
+                }
+            }
+        }
+
+        if (images.length === 0) {
+            throw new Error("AI did not return any images using the Gemini Flash model.");
+        }
+        
+        return images;
+    }
 };
 
 // FIX: Add missing video generation functionality
