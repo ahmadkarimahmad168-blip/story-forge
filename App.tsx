@@ -237,7 +237,7 @@ const App: React.FC = () => {
                 newEpisodes.push({ ...episodeData, images: [], storyboardPrompts: [] });
                 setEpisodes([...newEpisodes]);
 
-                if (i < 4) await new Promise(resolve => setTimeout(resolve, 1500));
+                if (i < 4) await new Promise(resolve => setTimeout(resolve, 5000));
             }
         } catch (err) {
             handleApiError(err, 'إنشاء القصة');
