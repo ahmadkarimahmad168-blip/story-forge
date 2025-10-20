@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Episode, CreativeFxParams } from '../types';
+import type { Episode } from '../types';
 import { Icon } from './Icon';
 import { GeminiTTSPanel } from './GeminiTTSPanel';
 import { ImageGenerationPanel } from './ImageGenerationPanel';
@@ -16,10 +16,7 @@ interface EpisodeDisplayProps {
     onUpdateEpisode: (index: number, episode: Episode) => void;
     onExportProject: () => void;
     onAddImage: (episodeIndex: number, file: File) => void;
-    onGenerateSingleImage: (episodeIndex: number, sceneIndex: number) => void;
-    onGenerateAllImages: (episodeIndex: number) => void;
-    onUpdateCreativeParams: (episodeIndex: number, sceneIndex: number, params: CreativeFxParams) => void;
-    onUpdateImageScenePrompt: (episodeIndex: number, sceneIndex: number, newPrompt: string) => void;
+    onGenerateAllImages: (episodeIndex: number, style: string) => void;
 }
 
 const SEODisplay: React.FC<{ seo: Episode['seo'] }> = ({ seo }) => {
@@ -82,8 +79,7 @@ const TabButton: React.FC<{
 const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory' | 'onExportProject' | 'onAddImage' > & { episode: Episode; index: number; onAddImage: (file: File) => void; }> = (props) => {
     const {
         episode, index, isLoading, onGenerateImageScenes, onGenerateStoryboard,
-        onSaveEpisode, onUpdateEpisode, onAddImage, onGenerateSingleImage,
-        onGenerateAllImages, onUpdateCreativeParams, onUpdateImageScenePrompt
+        onSaveEpisode, onUpdateEpisode, onAddImage, onGenerateAllImages
     } = props;
     
     const [activeTab, setActiveTab] = useState<'images' | 'audio' | 'storyboard'>('images');
@@ -139,10 +135,7 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                                 onGenerateScenes={() => onGenerateImageScenes(index, episode.text)}
                                 isGenerating={isLoading}
                                 episode={episode}
-                                onGenerateSingleImage={(sceneIndex) => onGenerateSingleImage(index, sceneIndex)}
-                                onGenerateAllImages={() => onGenerateAllImages(index)}
-                                onUpdateCreativeParams={(sceneIndex, params) => onUpdateCreativeParams(index, sceneIndex, params)}
-                                onUpdateImageScenePrompt={(sceneIndex, newPrompt) => onUpdateImageScenePrompt(index, sceneIndex, newPrompt)}
+                                onGenerateAllImages={(style: string) => onGenerateAllImages(index, style)}
                              />
                         )}
                         {activeTab === 'audio' && (

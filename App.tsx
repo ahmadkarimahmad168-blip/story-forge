@@ -10,7 +10,7 @@ import { SelectFolderModal } from './components/SelectFolderModal';
 import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage } from './services/geminiService';
 import * as fileSystemService from './services/fileSystemService';
 import { exportStoryAsZip } from './services/exportService';
-import type { Episode, ArchivedStory, StoryData, GeneratedImage, CreativeFxParams } from './types';
+import type { Episode, ArchivedStory, StoryData, GeneratedImage } from './types';
 import { Footer } from './components/Footer';
 import { AboutPage } from './components/pages/AboutPage';
 import { ContactPage } from './components/pages/ContactPage';
@@ -239,17 +239,12 @@ const App: React.FC = () => {
                 throw new Error("لم يتمكن الذكاء الاصطناعي من تحديد مشاهد من النص.");
             }
             
-            const defaultCreativeParams: CreativeFxParams = {
-                style: 'cinematic', chips: [], negativePrompt: '', seed: ''
-            };
-            const newCreativeParams = Array(scenePrompts.length).fill(null).map(() => ({ ...defaultCreativeParams }));
             const newImages = Array(scenePrompts.length).fill(null);
 
             setEpisodes(prevEpisodes => {
                 const newEpisodes = [...prevEpisodes];
                 const targetEpisode = { ...newEpisodes[episodeIndex] };
                 targetEpisode.imageScenePrompts = scenePrompts;
-                targetEpisode.imageSceneCreativeParams = newCreativeParams;
                 targetEpisode.images = newImages;
                 newEpisodes[episodeIndex] = targetEpisode;
                 return newEpisodes;
@@ -316,42 +311,17 @@ const App: React.FC = () => {
         }
     }, [episodes]);
 
-    const handleUpdateCreativeParams = (episodeIndex: number, sceneIndex: number, params: CreativeFxParams) => {
-        setEpisodes(prev => {
-            const newEpisodes = [...prev];
-            const episode = { ...newEpisodes[episodeIndex] };
-            const creativeParams = [...(episode.imageSceneCreativeParams || [])];
-            creativeParams[sceneIndex] = params;
-            episode.imageSceneCreativeParams = creativeParams;
-            newEpisodes[episodeIndex] = episode;
-            return newEpisodes;
-        });
-    };
-
-    const handleUpdateImageScenePrompt = (episodeIndex: number, sceneIndex: number, newPrompt: string) => {
-        setEpisodes(prev => {
-            const newEpisodes = [...prev];
-            const episode = { ...newEpisodes[episodeIndex] };
-            const prompts = [...(episode.imageScenePrompts || [])];
-            prompts[sceneIndex] = newPrompt;
-            episode.imageScenePrompts = prompts;
-            newEpisodes[episodeIndex] = episode;
-            return newEpisodes;
-        });
-    };
-
-    const handleGenerateSingleImage = useCallback(async (episodeIndex: number, sceneIndex: number) => {
+    const handleGenerateSingleImage = useCallback(async (episodeIndex: number, sceneIndex: number, style: string) => {
         const episode = episodes[episodeIndex];
         const basePrompt = episode?.imageScenePrompts?.[sceneIndex];
-        const params = episode?.imageSceneCreativeParams?.[sceneIndex];
     
-        if (!basePrompt || !params) {
-            const err = new Error("لا يمكن العثور على وصف المشهد أو الإعدادات.");
+        if (!basePrompt) {
+            const err = new Error("لا يمكن العثور على وصف المشهد.");
             handleApiError(err, `تهيئة صورة ${sceneIndex + 1}`);
             throw err;
         }
     
-        const superPrompt = `${basePrompt}, ${params.style}, ${params.chips.join(', ')}${params.negativePrompt ? `, --no ${params.negativePrompt}` : ''}${params.seed ? `, --seed ${params.seed}` : ''}`;
+        const superPrompt = `${basePrompt}, ${style}`;
         
         try {
             const imageUrl = await generateImage({ prompt: superPrompt });
@@ -372,7 +342,7 @@ const App: React.FC = () => {
         }
     }, [episodes]);
 
-    const handleGenerateAllImages = useCallback(async (episodeIndex: number) => {
+    const handleGenerateAllImages = useCallback(async (episodeIndex: number, style: string) => {
         const episode = episodes[episodeIndex];
         const prompts = episode?.imageScenePrompts;
         if (!prompts || prompts.length === 0) {
@@ -386,7 +356,7 @@ const App: React.FC = () => {
         for (let i = 0; i < prompts.length; i++) {
             try {
                 setLoadingMessage(`[${i + 1}/${prompts.length}] جارٍ إنشاء الصورة...`);
-                await handleGenerateSingleImage(episodeIndex, i);
+                await handleGenerateSingleImage(episodeIndex, i, style);
                 
                 if (i < prompts.length - 1) {
                     setLoadingMessage(`[${i + 1}/${prompts.length}] تم إنشاء الصورة. انتظار قصير قبل المتابعة...`);
@@ -563,10 +533,7 @@ const App: React.FC = () => {
                                 onUpdateEpisode={handleUpdateEpisode}
                                 onExportProject={handleExportProject}
                                 onAddImage={handleAddImageToEpisode}
-                                onGenerateSingleImage={handleGenerateSingleImage}
                                 onGenerateAllImages={handleGenerateAllImages}
-                                onUpdateCreativeParams={handleUpdateCreativeParams}
-                                onUpdateImageScenePrompt={handleUpdateImageScenePrompt}
                             />
                         )}
                     </main>
