@@ -7,7 +7,7 @@ import { PreviousStoriesModal } from './components/PreviousStoriesModal';
 import { StoryFinder } from './components/StoryFinder';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { SelectFolderModal } from './components/SelectFolderModal';
-import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage, registerApiCallListener } from './services/geminiService';
+import { initializeGemini, validateApiKey, generateStoryOutline, generateEpisode, generateImageScenePrompts, generateStoryboardPrompts, generateImage } from './services/geminiService';
 import * as fileSystemService from './services/fileSystemService';
 import { exportStoryAsZip } from './services/exportService';
 import type { Episode, ArchivedStory, StoryData } from './types';
@@ -60,33 +60,6 @@ const App: React.FC = () => {
     const [archivedStories, setArchivedStories] = useState<ArchivedStory[]>([]);
     const [isArchiveOpen, setIsArchiveOpen] = useState<boolean>(false);
     
-    // --- API Usage State ---
-    const [apiRequests, setApiRequests] = useState<number[]>([]);
-    const MAX_RPM = 60;
-
-    // Register API call listener and set up a cleanup interval for old requests
-    useEffect(() => {
-        // Function to add a timestamp when an API call is made
-        const handleApiCall = () => {
-            setApiRequests(prev => [...prev, Date.now()]);
-        };
-
-        // Register the listener with the geminiService
-        registerApiCallListener(handleApiCall);
-
-        // Set up an interval to clear out requests older than 60 seconds
-        const cleanupInterval = setInterval(() => {
-            const sixtySecondsAgo = Date.now() - 60000;
-            setApiRequests(prev => prev.filter(ts => ts > sixtySecondsAgo));
-        }, 1000); // Check every second
-
-        // Cleanup function
-        return () => {
-            clearInterval(cleanupInterval);
-            registerApiCallListener(null); // Unregister the listener
-        };
-    }, []); // Empty dependency array means this runs once on mount and cleans up on unmount
-
     // Check for API Key on initial mount
     useEffect(() => {
         try {
@@ -249,10 +222,10 @@ const App: React.FC = () => {
 
     const handleGenerateImageScenes = useCallback(async (
         episodeIndex: number,
+        episodeText: string,
         fxParams: CreativeFxParams
     ) => {
-        const episode = episodes[episodeIndex];
-        if (!episode?.text) {
+        if (!episodeText) {
             setError("لا يوجد نص للحلقة لتحليله.");
             return;
         }
@@ -261,37 +234,39 @@ const App: React.FC = () => {
         setError(null);
         
         try {
-            setLoadingMessage(`[1/2] جارٍ تحليل الحلقة ${episodeIndex + 1} لتحديد المشاهد الرئيسية...`);
-            const scenePrompts = await generateImageScenePrompts(episode.text);
+            setLoadingMessage(`[1/${6 + 1}] جارٍ تحليل الحلقة ${episodeIndex + 1} لتحديد المشاهد الرئيسية...`);
+            const scenePrompts = await generateImageScenePrompts(episodeText);
 
             if (!scenePrompts || scenePrompts.length === 0) {
                 throw new Error("لم يتمكن الذكاء الاصطناعي من تحديد مشاهد من النص.");
             }
             
-            setLoadingMessage(`[2/2] جارٍ إنشاء ${scenePrompts.length} صور سينمائية...`);
-            
             const seedValue = fxParams.seed ? parseInt(fxParams.seed, 10) : undefined;
             
-            const imagePromises = scenePrompts.map((prompt, index) => 
-                generateImage({
+            for (let i = 0; i < scenePrompts.length; i++) {
+                const prompt = scenePrompts[i];
+                setLoadingMessage(`[${i + 2}/${scenePrompts.length + 1}] جارٍ إنشاء الصورة ${i + 1} من ${scenePrompts.length}...`);
+                
+                const imageResultArray = await generateImage({
                     prompt,
                     style: fxParams.style,
                     chips: fxParams.chips,
                     negativePrompt: fxParams.negativePrompt,
                     numberOfImages: 1,
-                    seed: seedValue ? seedValue + index : undefined,
+                    seed: seedValue ? seedValue + i : undefined,
                     model: fxParams.model,
-                })
-            );
-            
-            const imageResultArrays = await Promise.all(imagePromises);
-            const newImages = imageResultArrays.flat();
-
-            const updatedEpisode: Episode = {
-                ...episode,
-                images: [...(episode.images || []), ...newImages],
-            };
-            handleUpdateEpisode(episodeIndex, updatedEpisode);
+                });
+                
+                if (imageResultArray && imageResultArray.length > 0) {
+                    setEpisodes(prevEpisodes => {
+                        const newEpisodes = [...prevEpisodes];
+                        const targetEpisode = { ...newEpisodes[episodeIndex] };
+                        targetEpisode.images = [...(targetEpisode.images || []), ...imageResultArray];
+                        newEpisodes[episodeIndex] = targetEpisode;
+                        return newEpisodes;
+                    });
+                }
+            }
 
         } catch (err) {
             handleApiError(err, 'إنشاء مشاهد الصور');
@@ -299,7 +274,7 @@ const App: React.FC = () => {
             setIsLoading(false);
             setLoadingMessage('');
         }
-    }, [episodes]);
+    }, []);
 
     const handleGenerateStoryboard = useCallback(async (episodeIndex: number, promptCount: number) => {
         const episode = episodes[episodeIndex];
@@ -499,7 +474,7 @@ const App: React.FC = () => {
                     </main>
                 )}
             </div>
-            <Footer onNavigate={setPage} currentRpm={apiRequests.length} maxRpm={MAX_RPM} />
+            <Footer onNavigate={setPage} />
             {(isLoading || isExporting) && <Loader message={loadingMessage} />}
             <PreviousStoriesModal 
                 isOpen={isArchiveOpen}

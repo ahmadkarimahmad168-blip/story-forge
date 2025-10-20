@@ -5,27 +5,6 @@ import type { Episode, SEOData, StorySuggestion, GeneratedImage } from '../types
 let ai: GoogleGenAI | null = null;
 let geminiApiKey: string | null = null;
 
-// --- API Call Listener ---
-let apiCallListener: (() => void) | null = null;
-
-/**
- * Registers a listener to be called on every API request.
- * Used for tracking usage like RPM.
- */
-export const registerApiCallListener = (listener: (() => void) | null) => {
-    apiCallListener = listener;
-};
-
-/**
- * Notifies the registered listener that an API call is about to be made.
- */
-const notifyApiCall = () => {
-    if (apiCallListener) {
-        apiCallListener();
-    }
-};
-
-
 export const initializeGemini = (apiKey: string) => {
     if (!apiKey) {
         throw new Error("API key is required to initialize Gemini service.");
@@ -105,7 +84,6 @@ const withRetry = async <T>(
     let attempt = 0;
     while (attempt < maxRetries) {
         try {
-            notifyApiCall(); // Notify right before the attempt
             return await apiCall();
         } catch (error: any) {
             attempt++;
@@ -503,62 +481,67 @@ export interface ImageGenerationParams {
     model?: 'gemini' | 'imagen';
 }
 
-export const generateImage = async (params: ImageGenerationParams): Promise<GeneratedImage[]> => {
-    const localAi = ensureAiInitialized();
-    const { prompt, style, chips, negativePrompt, numberOfImages = 1, seed, model = 'gemini' } = params;
+export const generateImage = (params: ImageGenerationParams): Promise<GeneratedImage[]> => {
+    const apiCall = async (): Promise<GeneratedImage[]> => {
+        const localAi = ensureAiInitialized();
+        const { prompt, style, chips, negativePrompt, numberOfImages = 1, seed, model = 'gemini' } = params;
 
-    const fullPrompt = [
-        prompt,
-        ...chips,
-        style,
-        negativePrompt ? `avoiding: ${negativePrompt}` : ''
-    ].filter(Boolean).join(', ');
+        const fullPrompt = [
+            prompt,
+            ...chips,
+            style,
+            negativePrompt ? `avoiding: ${negativePrompt}` : ''
+        ].filter(Boolean).join(', ');
 
-    if (model === 'imagen') {
-        const response = await localAi.models.generateImages({
-            model: 'imagen-4.0-generate-001',
-            prompt: fullPrompt,
-            config: {
-                numberOfImages: numberOfImages,
-                outputMimeType: 'image/png',
-                aspectRatio: '16:9',
-                seed: seed,
-            },
-        });
-        return response.generatedImages.map(img => ({
-            url: `data:image/png;base64,${img.image.imageBytes}`,
-        }));
-    } else {
-        const response = await localAi.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [
-                    { text: fullPrompt },
-                ],
-            },
-            config: {
-                responseModalities: [Modality.IMAGE],
-            },
-        });
+        if (model === 'imagen') {
+            const response = await localAi.models.generateImages({
+                model: 'imagen-4.0-generate-001',
+                prompt: fullPrompt,
+                config: {
+                    numberOfImages: numberOfImages,
+                    outputMimeType: 'image/png',
+                    aspectRatio: '16:9',
+                    seed: seed,
+                },
+            });
+            return response.generatedImages.map(img => ({
+                url: `data:image/png;base64,${img.image.imageBytes}`,
+            }));
+        } else { // 'gemini'
+            const response = await localAi.models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: {
+                    parts: [
+                        { text: fullPrompt },
+                    ],
+                },
+                config: {
+                    responseModalities: [Modality.IMAGE],
+                },
+            });
 
-        const images: GeneratedImage[] = [];
-        if (response.candidates && response.candidates[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData?.data) {
-                    const base64ImageBytes: string = part.inlineData.data;
-                    const mimeType = part.inlineData.mimeType || 'image/png';
-                    images.push({ url: `data:${mimeType};base64,${base64ImageBytes}` });
+            const images: GeneratedImage[] = [];
+            if (response.candidates && response.candidates[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData?.data) {
+                        const base64ImageBytes: string = part.inlineData.data;
+                        const mimeType = part.inlineData.mimeType || 'image/png';
+                        images.push({ url: `data:${mimeType};base64,${base64ImageBytes}` });
+                    }
                 }
             }
-        }
 
-        if (images.length === 0) {
-            throw new Error("AI did not return any images using the Gemini Flash model.");
+            if (images.length === 0) {
+                throw new Error("AI did not return any images using the Gemini Flash model.");
+            }
+            
+            return images;
         }
-        
-        return images;
-    }
+    };
+    
+    return withRetry(apiCall, {});
 };
+
 
 // FIX: Add missing video generation functionality
 // --- Video Generation Functionality ---

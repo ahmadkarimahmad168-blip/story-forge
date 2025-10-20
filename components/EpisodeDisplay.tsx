@@ -9,7 +9,7 @@ interface EpisodeDisplayProps {
     episodes: Episode[];
     isLoading: boolean;
     isExporting: boolean;
-    onGenerateImageScenes: (episodeIndex: number, params: CreativeFxParams) => void;
+    onGenerateImageScenes: (episodeIndex: number, episodeText: string, params: CreativeFxParams) => void;
     onGenerateStoryboard: (episodeIndex: number, promptCount: number) => void;
     onSaveEpisode: (episodeIndex: number) => void;
     onSaveStory: () => void;
@@ -123,7 +123,7 @@ const EpisodePanel: React.FC<Omit<EpisodeDisplayProps, 'episodes' | 'onSaveStory
                     <div className="bg-gray-700/50 p-4 rounded-b-xl">
                         {activeTab === 'images' && (
                              <ImageGenerationPanel
-                                onGenerateScenes={(params) => onGenerateImageScenes(index, params)}
+                                onGenerateScenes={(params) => onGenerateImageScenes(index, episode.text, params)}
                                 isGenerating={isLoading}
                              />
                         )}
